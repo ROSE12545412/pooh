@@ -1,0 +1,110 @@
+name: Release
+
+# 本扩展是「免构建」的纯 ES Module 扩展：仓库根目录本身就是一个可直接安装的
+# SillyTavern / TauriTavern 扩展目录。因此发布流程只做两件事：
+#   1) 语法自检 + 单元测试
+#   2) 打一个 zip，挂到 GitHub Release 上供手动下载安装
+#
+# 触发方式：推送形如 v0.1.0 的 tag，或在 Actions 页面手动运行。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: 语法自检与单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 校验 manifest.json 与 package.json
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8')); console.log('manifest.json OK')"
+          node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); console.log('package.json OK')"
+
+      - name: 加载检查（整个源码依赖图 import 一遍）
+        run: npm run check
+
+      - name: 运行单元测试
+        run: npm test
+
+      - name: 装载冒烟测试（假 DOM 里真的启动一次扩展）
+        run: npm run smoke
+
+  package:
+    name: 打包并发布
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 从 tag 推导版本号
+        id: meta
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 校验 tag 与 package.json 版本一致
+        if: github.ref_type == 'tag'
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${{ steps.meta.outputs.version }}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "::error::tag ($TAG) 与 package.json 版本 ($PKG) 不一致，请先同步版本号"
+            exit 1
+          fi
+
+      - name: 生成 zip 包
+        run: |
+          NAME="tavern-dice-${{ steps.meta.outputs.version }}"
+          mkdir -p "dist/$NAME"
+          # 只打包扩展运行所需文件（排除 CI、测试与开发文档）
+          cp -r src assets index.js style.css manifest.json README.md LICENSE CHANGELOG.md "dist/$NAME/"
+          cd dist && zip -r "$NAME.zip" "$NAME"
+          ls -la
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: tavern-dice-zip
+          path: dist/*.zip
+
+      - name: 创建 GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
+          body: |
+            ## 安装方式
+
+            **方式一（推荐）** 酒馆内「扩展 → 安装扩展」，填入本仓库地址：
+            ```
+            https://github.com/${{ github.repository }}
+            ```
+
+            **方式二（手动）** 下载下方 `tavern-dice-${{ steps.meta.outputs.version }}.zip`，
+            解压后把整个文件夹放进：
+            ```
+            data/<你的用户名>/extensions/
+            ```
+            然后刷新酒馆页面。
+
+            ## 完整变更
+            见 [CHANGELOG.md](../blob/main/CHANGELOG.md)

@@ -1,0 +1,41 @@
+Runebit Dice: Tempest Runes D20, Free Sample v1.0
+Copyright (c) 2026 Runebit Dice
+
+LICENSE TERMS
+
+You may:
+  - Use the included PNG files in personal, educational, and commercial
+    projects, including games, videos, streams, PDFs, websites,
+    prototypes, VTT mockups, tabletop campaign graphics, marketing
+    images, and social posts. Both free and paid projects are fine.
+  - Modify, crop, recolor, resize, composite, or animate the PNG files
+    inside a larger project of your own making.
+  - Use the files in multiple projects you own or develop.
+
+You may not:
+  - Resell, redistribute, sublicense, or repackage the PNG files as
+    standalone assets or as part of another asset pack, collection,
+    template, or "pack of packs".
+  - Upload the files to stock-art libraries, asset marketplaces, or
+    commercial content repositories.
+  - Include the files in any dataset used to train or fine-tune
+    generative-AI or machine-learning models.
+  - Include the files in NFT, blockchain, or token-gated distributions.
+  - Claim the original asset files as your own standalone asset work.
+
+Attribution is appreciated for small indie projects but is not required.
+
+NO WARRANTY: The assets are provided "as is", without warranty of any
+kind, express or implied, including but not limited to the warranties
+of merchantability, fitness for a particular purpose, and
+non-infringement. In no event shall the authors be liable for any
+claim, damages, or other liability arising from, out of, or in
+connection with the assets or their use.
+
+THIRD-PARTY FONT NOTICE
+
+The etched numeral shapes in this pack were generated from Cinzel Bold
+(copyright SIL OFL 1.1), licensed under the SIL Open Font
+License, Version 1.1. Cinzel is not redistributed in
+this pack; it was used only as source geometry for rendering. See
+https://github.com/NDISCOVER/Cinzel-font for the original font.

@@ -1,0 +1,177 @@
+name: 🐛 Bug 报告
+description: 报告一个可复现的错误或异常行为
+title: "[Bug] "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间反馈问题！请尽量把信息填完整 —— 一份可复现的报告能让问题被修复得快很多。
+
+        ⚠️ **请不要在这个表单里粘贴 API Key、Base URL 中的密钥或任何私密信息。**
+
+        提交前建议先看一眼 [常见问题 FAQ](https://github.com/YOUR_NAME/tavern-dice#-常见问题-faq)，很多问题那里已有答案。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前确认
+      description: 请逐条确认，未确认的条目可能会让排查变慢。
+      options:
+        - label: 我已经搜索过现有的 Issues，确认这不是重复问题
+          required: true
+        - label: 我已经在最新版本上复现过这个问题
+          required: true
+        - label: 我已经阅读过 README 的 FAQ 部分
+          required: true
+        - label: 我确认本报告不包含任何 API Key 或其他私密信息
+          required: true
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: 扩展版本
+      description: 在「扩展 → 战斗掷骰」面板或 `manifest.json` 中可以看到。
+      placeholder: "例如：0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 运行环境
+      description: 你使用的是哪个前端？
+      options:
+        - SillyTavern（浏览器）
+        - TauriTavern（桌面端）
+        - 其他 / 不确定
+    validations:
+      required: true
+
+  - type: input
+    id: st-version
+    attributes:
+      label: SillyTavern / TauriTavern 版本
+      description: 酒馆页面底部或「关于」中可以看到版本号与分支（release / staging）。
+      placeholder: "例如：1.12.6 (release)"
+    validations:
+      required: true
+
+  - type: input
+    id: os-browser
+    attributes:
+      label: 操作系统与浏览器
+      placeholder: "例如：Windows 11 / Chrome 131，或 macOS 15 / Safari 18"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js 版本（仅在运行测试或本地开发时需要）
+      placeholder: "例如：20.11.0（运行 node -v 获取）"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清楚、简洁地说明发生了什么。
+      placeholder: 描述你遇到的问题……
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请按顺序列出每一步，越具体越好。
+      value: |
+        1. 打开……
+        2. 点击……
+        3. 输入……
+        4. 观察到……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你认为正常情况下应该发生什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么？如果有报错信息，请完整粘贴。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pipeline
+    attributes:
+      label: 受影响的环节
+      description: 如果问题只出现在某一条流水线上，请选择它。
+      multiple: true
+      options:
+        - P1 建表（读取世界书生成战力体系）
+        - P2 更新（对话后增量更新战力表）
+        - P3 战斗（掷骰与回合结算）
+        - 界面 / 悬浮球 / 面板
+        - 设置与 API 通道配置
+        - 安装 / 加载 / 卸载
+        - 不确定 / 其他
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: 使用的模型与通道
+      description: 如果问题与 LLM 调用有关，请填写模型名（**不要填 API Key**）。可以只写服务商与模型名。
+      placeholder: "例如：P1 通道 = OpenAI gpt-4o，P2 通道 = DeepSeek deepseek-chat"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 控制台日志
+      description: |
+        请把 `logLevel` 设为 `debug` 后重现问题，再按 F12 打开控制台，过滤 `[tavern-dice]` 并粘贴日志。
+        **粘贴前请务必删除 API Key、Base URL 中的密钥与个人信息。**
+      render: shell
+      placeholder: "[tavern-dice] ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: worldbook-info
+    attributes:
+      label: 世界书 / 角色卡情况（仅建表或更新类问题需要）
+      description: 不必粘贴原文，只需说明规模即可。例如条目数量、总字数、是否使用了 `<Combat_block>` 标签、是否已勾选条目。
+      placeholder: "例如：勾选了 8 条，共约 6000 字，其中 2 条含 <Combat_block>"
+    validations:
+      required: false
+
+  - type: upload
+    id: screenshots
+    attributes:
+      label: 截图或录屏
+      description: 界面类问题请尽量附上截图；拖动文件到此处即可上传。
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充信息
+      description: 任何其他有助于定位问题的信息 —— 例如是否稳定复现、是否只在特定聊天中出现、最近改过什么设置。
+    validations:
+      required: false

@@ -1,10 +1,21 @@
 {
-  "name": "pooh",
+  "name": "tavern-dice",
   "version": "1.0.0",
-  "description": "一句话说明这个项目是做什么的",
-  "keywords": [],
+  "private": true,
+  "type": "module",
+  "description": "Scene-driven turn-based combat for SillyTavern / TauriTavern. 当前剧情生成参战数据，AI操控队友与敌方，本地掷骰结算并汇总续写。",
+  "keywords": [
+    "sillytavern",
+    "tauritavern",
+    "extension",
+    "dice",
+    "d20",
+    "trpg",
+    "combat"
+  ],
   "license": "MIT",
   "author": "ROSE12545412",
+  "homepage": "https://github.com/ROSE12545412/pooh",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ROSE12545412/pooh.git"
@@ -12,12 +23,15 @@
   "bugs": {
     "url": "https://github.com/ROSE12545412/pooh/issues"
   },
-  "homepage": "https://github.com/ROSE12545412/pooh#readme",
-  "files": [
-    "dist"
-  ],
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test/run.js",
+    "check": "node scripts/check-syntax.js",
+    "smoke": "node scripts/smoke-boot.js",
+    "smoke:installed": "node scripts/smoke-installed.js",
+    "strip-bom": "node scripts/strip-bom.js .",
+    "verify": "npm run check && npm test && npm run smoke"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

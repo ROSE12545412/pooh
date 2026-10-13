@@ -1182,7 +1182,7 @@ function renderAdvancedDrawer(app, helpers) {
             stat('数据版本', String(app.data.dataVersion ?? 1)),
         ]),
         el('div', { class: 'td-row td-gap td-wrap' }, [
-            button('⬇ 导出全部数据 (JSON)', async () => {
+            button('⬇ 导出数据 (JSON，不含 API 密钥)', async () => {
                 const payload = JSON.stringify(exportAll(app.ctx), null, 2);
                 try {
                     await navigator.clipboard.writeText(payload);

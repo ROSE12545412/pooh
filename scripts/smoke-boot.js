@@ -198,6 +198,20 @@ class FakeElement {
         for (const node of nodes) this.appendChild(node);
     }
 
+    cloneNode(deep = false) {
+        const copy = new FakeElement(this.tagName);
+        copy.className = this.className;
+        copy.attributes = { ...this.attributes };
+        copy.id = this.id;
+        copy._text = this._text;
+        copy.hidden = this.hidden;
+        copy.value = this.value;
+        if (deep) for (const child of this.children) {
+            copy.appendChild(child.cloneNode ? child.cloneNode(true) : { nodeType: 3, textContent: child.textContent, children: [] });
+        }
+        return copy;
+    }
+
     /** 判断某个后代是不是自己（测试断言要用）。 */
     contains(node) {
         if (!node) return false;
@@ -1035,7 +1049,7 @@ await check('检定面板显示真实总值、加减来源、自定义骰及概�
     assert.ok(followUp.querySelector('.td-turn-checks').textContent.includes('虚弱 -3'));
 });
 
-await check('单体选目标、群体直结算与掷骰前减益使用实际 DOM', async () => {
+await check('单体头像直执行、群体确认与掷骰前减益使用实际 DOM', async () => {
     const { AppController } = await import('../src/app.js');
     const { Battle } = await import('../src/combat/engine.js');
     const { normalizePowerSystem } = await import('../src/core/schema.js');
@@ -1067,34 +1081,44 @@ await check('单体选目标、群体直结算与掷骰前减益使用实际 DOM
     let root;
     const helpers = { rerender() { root = renderBattle(app, helpers); }, setTab() {} };
     const click = node => { assert.ok(node, '必须找到真实按钮'); node.dispatchEvent('click', { target: node }); };
-    const skill = name => root.querySelector('.td-skill-buttons')?.querySelectorAll('.menu_button').find(node => node.textContent.startsWith(name));
-    const picks = () => root.querySelector('.td-target-picker')?.querySelectorAll('.menu_button') ?? [];
+    const skill = name => root.querySelector('.td-skill-buttons')?.querySelectorAll('.menu_button').find(node => node.textContent.trimStart().startsWith(name));
+    const picks = () => root.querySelectorAll('.td-bunit-targetable');
+    const card = id => root.querySelector('#td-bunit-' + id);
     helpers.rerender();
     const snapshot = battle.rng.snapshot();
+    assert.ok(root.querySelector('.td-card-dock').querySelector('.td-skill-hand'), '手动角色技能显示为底部手牌');
     assert.ok(root.querySelector('.td-preroll-penalty').textContent.includes('失衡'));
     assert.ok(root.querySelector('.td-preroll-penalty').textContent.includes('-3'));
     assert.notEqual(skill('单点').getAttribute('aria-disabled'), 'true', '测试中的玩家单体技能应可用');
     click(skill('单点'));
     assert.equal(calls.length, 0, '选技能尚不执行');
-    assert.equal(picks().length, 2, `所有敌方都是单体候选，不只首个；实际目标区：${root.querySelector('.td-target-picker')?.textContent ?? '未渲染'}；行动区：${root.querySelector('.td-action-bar')?.textContent}`);
+    assert.equal(picks().length, 2, '所有敌方卡面都是单体候选，不只首个');
+    assert.equal(root.querySelector('.td-execute-action'), null, '单体不显示额外执行按钮');
     assert.deepEqual(battle.rng.snapshot(), snapshot, '渲染与候选预览不得消耗随机数');
     const enemy2 = battle.units.find(unit => unit.name === '对手乙');
-    click(picks().find(node => node.getAttribute('data-target-id') === enemy2.id));
+    const enemyCard = card(enemy2.id);
+    enemyCard.dispatchEvent('click', { target: enemyCard.querySelector('.td-portrait') });
+    click(enemyCard);
+    assert.equal(calls.length, 1, '点头像直接执行，快速重复只提交一次');
     assert.deepEqual(calls.pop().targetIds, [enemy2.id]);
     await Promise.resolve();
     click(skill('援护'));
-    assert.deepEqual(picks().map(node => node.textContent), ['选择 玩家', '选择 队友']);
+    assert.equal(picks().length, 2, '治疗高亮玩家与队友卡面');
     const staleFriend = picks()[1];
     const friend = battle.units.find(unit => unit.name === '队友');
     friend.alive = false;
-    click(staleFriend);
-    assert.equal(calls.length, 0, '失效旧目标按钮不能执行');
+    staleFriend.dispatchEvent('keydown', { key: 'Enter' });
+    assert.equal(calls.length, 0, '失效旧目标卡面不能执行');
     friend.alive = true;
     click(skill('范围'));
+    assert.equal(calls.length, 0, '群体技能也须确认，不可选牌即执行');
+    click(root.querySelector('.td-execute-action'));
     assert.equal(calls.pop().skillId, 'area');
     await Promise.resolve();
-    assert.equal(root.querySelector('.td-target-picker'), null, '群体不伪装成选一个目标');
+    assert.equal(picks().length, 0, '群体不伪装成选一个目标');
     click(skill('随机弹'));
+    assert.equal(calls.length, 0, '随机技能预选不执行或消耗RNG');
+    click(root.querySelector('.td-execute-action'));
     assert.equal(calls.pop().skillId, 'random');
     assert.deepEqual(battle.rng.snapshot(), snapshot, '随机技能点选预览不预掷随机目标');
     await Promise.resolve();
@@ -1104,7 +1128,7 @@ await check('单体选目标、群体直结算与掷骰前减益使用实际 DOM
     assert.equal(calls.length, 0, '只有一个目标仍须明确选择');
     const staleTarget = picks()[0];
     battle.turnIndex = battle.initiative.findIndex(entry => entry.unitId === friend.id);
-    click(staleTarget);
+    staleTarget.dispatchEvent('keydown', { key: 'Enter' });
     assert.equal(calls.length, 0, '过期行动不能误给下一人执行');
     battle.turnIndex = battle.initiative.findIndex(entry => entry.unitId === 'player');
     helpers.rerender();
@@ -2884,38 +2908,42 @@ await check('战斗页面能渲染进行中的战斗', () => {
     assert.ok(text.includes('第 1 回合'), '战斗页没有显示回合数');
 });
 
-await check('圆形资源槽点击展开属性，头像点击不会选中目标', () => {
+await check('卡牌资源条与属性展开，头像编辑不选目标，三栏战场与底部手牌完整', () => {
     api.panel.setTab('battle');
     const panel = fakeDocument.getElementById('tavern-dice-panel');
     const cards = panel.querySelectorAll('.td-roster-unit');
     assert.equal(cards.length, app.battle.units.length);
-    assert.equal(panel.querySelectorAll('.td-resource-orb').length, cards.length * 2);
-    assert.equal(panel.querySelectorAll('.td-bars').length, 0, '不应再显示横向血蓝条');
+    assert.equal(panel.querySelectorAll('.td-resource-orb').length, 0, '紧凑卡牌不保留占空间的血魔球');
+    assert.equal(panel.querySelectorAll('.td-card-resource').length, cards.length * 2, '每张角色牌应显示血蓝资源条');
     const card = cards[0];
     const details = card.querySelector('.td-unit-details');
-    const toggle = card.querySelector('.td-resource-toggle');
-    assert.equal(details.hidden, true, '属性默认隐藏');
-    const opened = toggle.dispatchEvent('click');
-    assert.equal(opened.propagationStopped, true, '查看属性不能触发选敌');
-    assert.equal(details.hidden, false);
-    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(card.querySelector('.td-resource-toggle'), null, '紧凑角色牌不再显示属性按钮');
+    assert.equal(details.hidden, true, '属性默认隐藏，不占战场高度');
+    card.dispatchEvent('keydown', { key: ' ' });
+    assert.ok(fakeDocument.getElementById('tavern-dice-modal'), '键盘 Space 与长按共用属性弹窗');
     assert.ok(details.textContent.includes('HP') && details.textContent.includes('MP'));
     assert.ok(details.textContent.includes('攻') && details.textContent.includes('闪'));
     const initial = card.querySelector('.td-portrait-initial').textContent;
     assert.equal(initial, Array.from(card.querySelector('.td-bunit-name').textContent)[0]);
     let picked = 0;
     card.querySelector('input').click = () => picked++;
-    const clicked = card.querySelector('.td-portrait').dispatchEvent('click');
+    const clicked = card.querySelector('.td-portrait-edit').dispatchEvent('click');
     assert.equal(picked, 1, '点击头像应打开文件选择器');
     assert.equal(clicked.propagationStopped, true, '上传头像不能触发选敌');
     api.panel.render();
     const restored = fakeDocument.getElementById(card.id);
-    assert.equal(restored.querySelector('.td-unit-details').hidden, false, '重绘后保留展开状态');
-    restored.querySelector('.td-resource-toggle').dispatchEvent('click');
-    assert.equal(restored.querySelector('.td-unit-details').hidden, true);
-    const consoleNode = fakeDocument.getElementById('tavern-dice-panel').querySelector('.td-combat-console');
-    assert.ok(consoleNode.querySelector('.td-bg3-panel'), '操作区应包含骰子');
-    assert.ok(consoleNode.querySelector('.td-action-bar'), '技能行动区应在骰子同一容器');
+    assert.equal(restored.querySelector('.td-unit-details').hidden, true, '重绘后属性仍不占卡面空间');
+    fakeDocument.getElementById('tavern-dice-modal')?.querySelector('.td-modal-close')?.dispatchEvent('click');
+    const table = fakeDocument.getElementById('tavern-dice-panel').querySelector('.td-card-table');
+    assert.ok(table.querySelector('.td-card-allies').querySelector('.td-character-card'), '左侧应包含我方角色卡');
+    assert.ok(table.querySelector('.td-card-enemies').querySelector('.td-character-card'), '右侧应包含敌方角色卡');
+    const center = table.querySelector('.td-card-center');
+    assert.ok(center.querySelector('.td-bg3-panel'), '中央舞台应包含骰子');
+    assert.ok(center.querySelector('.td-blog-wrap'), '中央舞台应包含战斗记录');
+    const dock = table.querySelector('.td-card-dock');
+    assert.ok(dock.querySelector('.td-action-bar'), '底部应包含技能行动区');
+    assert.ok(dock.querySelector('.td-action-bar').textContent.trim(), '底部应显示手动手牌或当前行动状态提示');
+    assert.ok(dock.querySelector('.td-banter'), '底部应保留口嗨输入');
 });
 
 await check('口嗨 DOM 输入、目标、重绘草稿和发送结果正确', async () => {

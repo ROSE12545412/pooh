@@ -15,4 +15,4 @@
  */
 
 /** 构建时间戳（每次改动后更新）。 */
-export const BUILD_STAMP = 'chat-cleanup-refresh-v28';
+export const BUILD_STAMP = 'ui-v31-avatar-direct-action';

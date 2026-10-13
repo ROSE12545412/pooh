@@ -75,7 +75,9 @@ jobs:
           NAME="tavern-dice-${{ steps.meta.outputs.version }}"
           mkdir -p "dist/$NAME"
           # 只打包扩展运行所需文件（排除 CI、测试与开发文档）
-          cp -r src assets index.js style.css manifest.json README.md LICENSE CHANGELOG.md "dist/$NAME/"
+          ENTRY=$(node -p "require('./manifest.json').js")
+          CSS=$(node -p "require('./manifest.json').css")
+          cp -r src assets index.js "$ENTRY" "$CSS" manifest.json README.md LICENSE CHANGELOG.md "dist/$NAME/"
           cd dist && zip -r "$NAME.zip" "$NAME"
           ls -la
 

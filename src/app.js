@@ -48,6 +48,7 @@ import { buildSceneRequest } from './llm/scene-prompt.js';
 import { readSituation, resolveNarrativeChannel, structureSituation } from './llm/setup.js';
 import { createGenerationWait, currentGenerationContext, generationChatIdentity, sameGenerationChat, readGenerationActivity } from './llm/generation-wait.js';
 import { pickMainRoll } from './ui/dice.js';
+import { buildBattleVisual } from './ui/battle-effects.js';
 import { toast, mercyDialog } from './ui/dom.js';
 
 /** 睡一会儿（用于动画节奏控制）。 */
@@ -81,6 +82,9 @@ export class AppController {
         this._listeners = new Map();
         /** @type {Battle|null} */
         this.battle = null;
+        /** Memory-only visual snapshot; never included in battle/chat persistence. */
+        this.battleVisual = null;
+        this._battleVisualSeq = 0;
         /** @type {boolean} */
         this.busy = false;
         /** @type {string} 忙碌提示文案 */
@@ -92,7 +96,7 @@ export class AppController {
         /**
          * 正文模型读出的当前战况（开战流程用）。
          * 只放内存 —— 它是「这一刻的场面」，不该持久化。
-         * @type {{report: string, situation: string, at: number}|null}
+         * @type {{report: string, situation: string, at: number, identity: object}|null}
          */
         this.battleSituation = null;
         /**
@@ -200,7 +204,8 @@ export class AppController {
     /**
      * 结束长任务：清掉进度与中断控制器。
      */
-    _endTask() {
+    _endTask(controller = this._abort) {
+        if (this._abort !== controller) return;
         this._abort = null;
         this.setProgress({
             active: false,
@@ -848,17 +853,27 @@ export class AppController {
     // 开战（核心入口）：正文模型读场面 → 掷骰模型结构化 → 开打
     // -----------------------------------------------------------------------
 
+    /** 捕获本次准备任务的聊天与控制器；旧任务不能更新新任务的状态。 */
+    _beginBattleSetup() {
+        this.ctx = currentGenerationContext(this.ctx);
+        const ctx = this.ctx;
+        const identity = generationChatIdentity(ctx);
+        const controller = new AbortController();
+        this._abort = controller;
+        return { ctx, identity, controller, valid: () => this._abort === controller &&
+            !controller.signal.aborted && sameGenerationChat(identity, currentGenerationContext(this.ctx)) };
+    }
+
     /**
      * 让正文模型读出当前战斗场面。
-     *
      * @param {{situation?: string}} [opts]
      * @returns {Promise<{ok: boolean, error?: string, report?: string, hasBattle?: boolean}>}
      */
     async readBattleSituation(opts = {}) {
         if (this.busy) return { ok: false, error: '正在忙' };
+        const task = this._beginBattleSetup();
         const settings = this.settings;
-
-        this._abort = new AbortController();
+        this.battleSituation = null;
         this.setBusy(true, '正在让正文模型读当前场面…');
         this.setProgress({
             active: true,
@@ -874,16 +889,17 @@ export class AppController {
         this.log('▶ 让正文模型读取当前战斗场面');
 
         try {
-            const result = await readSituation(this.ctx, settings, {
+            const result = await readSituation(task.ctx, settings, {
                 situation: opts.situation,
-                signal: this._abort.signal,
+                signal: task.controller.signal,
                 scanMessages: settings.battle.scanMessages,
                 knownUnits: this.powerSystem
                     ? summarizePowerSystem(this.powerSystem, { maxUnits: 30 })
                     : '',
-                onProgress: this._progressHandler('读取战况', 2),
+                onProgress: (...args) => { if (task.valid()) this._progressHandler('读取战况', 2)(...args); },
             });
 
+            if (!task.valid()) return { ok: false, aborted: true, error: '读取已停止或聊天已切换' };
             if (result.aborted) {
                 this.log('⏹ 读取战况已终止');
                 return { ok: false, error: '已被用户终止' };
@@ -902,12 +918,12 @@ export class AppController {
                 return { ok: false, error: result.error };
             }
 
-            this.battleSituation = { report: result.report, situation: opts.situation ?? '', at: Date.now() };
+            this.battleSituation = { report: result.report, situation: opts.situation ?? '', at: Date.now(), identity: task.identity };
             this.log(`✔ 战况读取完成${result.hasBattle ? '' : '（模型认为当前没有战斗场面）'}`);
             this.notify();
             return { ok: true, report: result.report, hasBattle: result.hasBattle };
         } finally {
-            this._endTask();
+            this._endTask(task.controller);
         }
     }
 
@@ -927,12 +943,16 @@ export class AppController {
      */
     async startBattleFromSituation(opts = {}) {
         if (this.busy) return { ok: false, error: '正在忙' };
+        this.ctx = currentGenerationContext(this.ctx);
+        const identity = generationChatIdentity(this.ctx);
         const settings = this.settings;
+        if (!this.battleSituation?.identity || !sameGenerationChat(this.battleSituation.identity, this.ctx)) this.battleSituation = null;
 
         // 1) 先拿到场面汇报（没有就现读一次）
         let report = opts.skipRead ? this.battleSituation?.report : '';
         if (!report) {
             const read = await this.readBattleSituation({ situation: opts.situation });
+            if (!sameGenerationChat(identity, currentGenerationContext(this.ctx)) || this.busy) return { ok: false, aborted: true, error: '聊天已切换或已有新任务' };
             if (!read.ok) return { ok: false, error: read.error };
             report = read.report ?? '';
 
@@ -948,7 +968,10 @@ export class AppController {
         }
         if (!report.trim()) return { ok: false, error: '没有读到战况内容' };
 
-        this._abort = new AbortController();
+        const task = this._beginBattleSetup();
+        this.setBusy(true, '正在准备战斗…');
+        this.setProgress({ active: true, kind: '准备战斗', cancellable: true, startedAt: Date.now() });
+        try {
 
         // 2) **先本地解析** —— 汇报是结构化的，直接读就行，不用调模型
         const local = parseSituationReport(report);
@@ -981,7 +1004,8 @@ export class AppController {
                 for (const u of local.system.combatants) u.isUser = u === resolved.unit;
                 // 记住名字 —— 下次开战会重建数据，靠这个名字把「你是谁」带过去
                 settings.battle.userUnitName = resolved.unit.name;
-                await this.persistSettings({ silent: true });
+                await saveSettings(task.ctx);
+                if (!task.valid()) return { ok: false, aborted: true, error: '准备战斗已停止或聊天已切换' };
                 const viaLabel = {
                     marker: '正文模型打的【玩家】标记',
                     'marker-ambiguous': '正文模型打了多个标记，取了第一个',
@@ -1017,9 +1041,9 @@ export class AppController {
             });
         }
 
-        try {
             if (!rawSystem) {
-                const structured = await this._structureViaModel(report, settings, opts);
+                const structured = await this._structureViaModel(report, settings, opts, task);
+                if (!task.valid()) return { ok: false, aborted: true, error: '准备战斗已停止或聊天已切换' };
                 if (!structured.ok) return structured;
                 rawSystem = structured.system;
             }
@@ -1035,7 +1059,8 @@ export class AppController {
             }
 
             // 3) 写入战力数据（这样战斗结束后的回写、以及后续更新都有落点）
-            const saved = await this.replacePowerSystem(system, localUsable ? '战况解析' : '战况读取');
+            const saved = await this.replacePowerSystem(system, localUsable ? '战况解析' : '战况读取', task);
+            if (!task.valid()) return { ok: false, aborted: true, error: '准备战斗已停止或聊天已切换' };
             if (!saved.ok) return { ok: false, error: saved.error };
 
             const count = this.powerSystem?.combatants?.length ?? 0;
@@ -1045,14 +1070,15 @@ export class AppController {
             );
 
             // 4) 开打
-            const started = await this.startBattle({ seed: opts.seed || settings.battle.seed || undefined });
+            const started = await this.startBattle({ seed: opts.seed || settings.battle.seed || undefined, task });
+            if (!task.valid()) return { ok: false, aborted: true, error: '准备战斗已停止或聊天已切换' };
             if (!started.ok) return { ok: false, error: started.error };
 
             toast(`战斗开始（${count} 个单位）`, 'success');
             this.notify();
             return { ok: true, count };
         } finally {
-            this._endTask();
+            this._endTask(task.controller);
         }
     }
 
@@ -1064,7 +1090,7 @@ export class AppController {
      * @param {{situation?: string}} opts
      * @returns {Promise<{ok: boolean, error?: string, system?: object}>}
      */
-    async _structureViaModel(report, settings, opts) {
+    async _structureViaModel(report, settings, opts, task) {
         this.setBusy(true, '正在把战况转成战斗数据…');
         this.setProgress({
             active: true,
@@ -1086,14 +1112,15 @@ export class AppController {
             { maxCharsPerMessage: 4000 },
         );
 
-        const structured = await structureSituation(this.ctx, settings, report, {
-            signal: this._abort?.signal,
+        const structured = await structureSituation(task.ctx, settings, report, {
+            signal: task.controller.signal,
             powerSystem: this.powerSystem,
             recentChat,
             situation: toText(situationText) || undefined,
-            onProgress: this._progressHandler('准备战斗', 3),
+            onProgress: (...args) => { if (task.valid()) this._progressHandler('准备战斗', 3)(...args); },
         });
 
+        if (!task.valid()) return { ok: false, aborted: true, error: '准备战斗已停止或聊天已切换' };
         if (structured.aborted) {
             this.log('⏹ 准备战斗已终止');
             return { ok: false, error: '已被用户终止' };
@@ -1210,9 +1237,13 @@ export class AppController {
     }
 
     cancelSceneGeneration() {
-        if (!this._sceneGenerationWait && this.progress.kind !== '生成战斗场景') return;
-        this._abort?.abort();
+        // CHAT_CHANGED 调用：报告是聊天私有快照，不能带到下一张卡。
+        this.battleSituation = null;
+        if (!this._sceneGenerationWait && !['生成战斗场景', '读取战况', '准备战斗', '自定义库润色'].includes(this.progress.kind)) return;
+        const controller = this._abort;
+        controller?.abort();
         this._sceneGenerationWait?.cancel({ ok: false, aborted: true, chatChanged: true });
+        this._endTask(controller);
     }
 
     /**
@@ -1311,7 +1342,7 @@ export class AppController {
         const last = waited.message;
         // 必须在解析或模型结构化前记录准确双楼及原剧情快照；失败不得猜测最新两楼。
         const captured = captureLoadoutChatPair(ctx, identity, baseline, request, last);
-        this.battleSituation = { report: last.text, situation: opts.situation ?? '', at: Date.now() };
+        this.battleSituation = { report: last.text, situation: opts.situation ?? '', at: Date.now(), identity };
         this.log(`✔ 已拿到战斗场景（${last.text.length} 字；${waited.via === 'event' ? '结束事件已确认' : '生成状态已确认'}），开始解析`);
         let started;
         try {
@@ -1369,17 +1400,23 @@ export class AppController {
      * @param {string} [summary]
      * @returns {Promise<{ok: boolean, error?: string}>}
      */
-    async replacePowerSystem(rawSystem, summary = '导入') {
-        const saved = await setPowerSystem(this.ctx, rawSystem, {
+    async replacePowerSystem(rawSystem, summary = '导入', task) {
+        const ctx = task?.ctx ?? this.ctx;
+        const identity = generationChatIdentity(ctx);
+        const valid = task?.valid ?? (() => sameGenerationChat(identity, currentGenerationContext(this.ctx)));
+        if (!valid()) return { ok: false, aborted: true, error: '聊天已切换或任务已终止' };
+        const saved = await setPowerSystem(ctx, rawSystem, {
             source: summary,
             note: summary,
         });
+        if (!valid()) return { ok: false, aborted: true, error: '聊天已切换或任务已终止' };
         if (!saved.ok) return { ok: false, error: saved.error };
 
         // 战斗中的单位跟新表对不上就直接结束战斗，避免两边数据打架
         if (this.battle) {
             this.battle = null;
-            await setBattle(this.ctx, null);
+            await setBattle(ctx, null);
+            if (!valid()) return { ok: false, aborted: true, error: '聊天已切换或任务已终止' };
             this.log('· 战力数据被整体替换，已结束进行中的战斗');
         }
 
@@ -1417,6 +1454,10 @@ export class AppController {
      * @returns {Promise<{ok: boolean, error?: string}>}
      */
     async startBattle(opts = {}) {
+        const ctx = opts.task?.ctx ?? this.ctx;
+        const identity = generationChatIdentity(ctx);
+        const valid = opts.task?.valid ?? (() => sameGenerationChat(identity, currentGenerationContext(this.ctx)));
+        if (!valid()) return { ok: false, aborted: true, error: '聊天已切换或任务已终止' };
         const system = applyLoadout(this.powerSystem, this.loadoutEntries, { playerName: this.settings.battle.userUnitName || this.ctx?.name1, accessoryMode: this.prebattleSelection.accessoryMode });
         if (!system?.combatants?.length) {
             toast('还没有战斗数据，请先点「读场面并开战」', 'warning');
@@ -1470,7 +1511,8 @@ export class AppController {
         this.battleResultSnapshot = null;
         this.battleSent = false;
         this.data.battleResult = null;
-        await setBattle(this.ctx, battle.toState());
+        await setBattle(ctx, battle.toState());
+        if (!valid()) return { ok: false, aborted: true, error: '聊天已切换或任务已终止' };
         const modeLabel = battle.combatMode === 'deadly' ? '生死搏杀' : '切磋';
         const modeFrom = modeSetting === 'auto' ? '正文 AI 判定' : '设置里指定';
         this.log(
@@ -2040,6 +2082,8 @@ export class AppController {
         const before = battle.phase;
         const roundBefore = battle.round;
         const metadataBefore = this.ctx.chatMetadata;
+        const visualCtx = this.ctx;
+        const visualIdentity = generationChatIdentity(this.ctx);
         const signal = this._abort?.signal;
         const logIndexBefore = battle.log.length;
 
@@ -2191,6 +2235,11 @@ export class AppController {
             }
         }
         const result = battle.act(finalAction);
+        // act advances the turn too: isolate this action before next-turn status/save logs.
+        const actionEntries = battle.log.slice(logIndexBefore);
+        const nextTurn = actionEntries.findIndex(entry => entry.type === 'turn');
+        const visual = result.ok ? buildBattleVisual(battle, unit, finalAction,
+            nextTurn < 0 ? actionEntries : actionEntries.slice(0, nextTurn)) : null;
 
         // 无论成败都要让骰子停下 —— 否则它会一直转下去
         const roll = pickMainRoll(battle.log, logIndexBefore);
@@ -2210,6 +2259,10 @@ export class AppController {
             await sleep(220);
         }
 
+        // Existing dice waits must not publish a previous chat/battle into the new UI.
+        if (signal?.aborted || this.battle !== battle || this.ctx !== visualCtx || this.ctx.chatMetadata !== metadataBefore ||
+            !sameGenerationChat(visualIdentity, currentGenerationContext(this.ctx))) return result;
+
         this.displayRoll = roll
             ? { ...roll, rolling: false, value: roll.nat, actorName: roll.actorName || unit.name, flavor: decision?.flavor ?? '' }
             : { rolling: false, value: 0, outcome: '', actorName: unit.name,
@@ -2228,6 +2281,9 @@ export class AppController {
         }
 
         await this._persistBattle(before);
+        if (this.battle !== battle || this.ctx !== visualCtx || this.ctx.chatMetadata !== metadataBefore ||
+            !sameGenerationChat(visualIdentity, currentGenerationContext(this.ctx))) return result;
+        this.battleVisual = visual ? { ...visual, seq: ++this._battleVisualSeq, ctx: visualCtx, metadata: metadataBefore } : null;
         this.notify();
 
         // ---- 自动衔接：AI 单位行动完接着下一个，一路跑到轮到你 ----

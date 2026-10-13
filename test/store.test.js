@@ -66,6 +66,17 @@ describe('配置删除迁移', () => {
 });
 
 describe('完整聊天存档导入导出', () => {
+    it('导出不携带 API 密钥、不修改本机设置并保留非敏感配置', () => {
+        const ctx = context();
+        const settings = getSettings(ctx);
+        settings.p2.channel.apiKey = 'EXPORT_DUMMY_SECRET';
+        settings.p2.channel.model = 'example-model';
+        const payload = exportAll(ctx);
+        assert.equal(payload.settings.p2.channel.apiKey, '');
+        assert.equal(JSON.stringify(payload).includes('EXPORT_DUMMY_SECRET'), false);
+        assert.equal(payload.settings.p2.channel.model, 'example-model');
+        assert.equal(settings.p2.channel.apiKey, 'EXPORT_DUMMY_SECRET');
+    });
     it('保留场景、战斗快照、审计和结算，默认保留本机连接且不共享引用', async () => {
         const source = context();
         source.chatMetadata[EXT_ID] = {

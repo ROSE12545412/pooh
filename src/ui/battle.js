@@ -3,12 +3,12 @@
  * ---------------------------------------------------------------------------
  * 战斗视图：先攻序、单位面板、技能选择、目标选择、战斗日志。
  *
- * 交互流程刻意做成「两步式」：
- *   点技能 → 高亮可选目标 → 点目标 → 结算
- * 因为回合制里最常见的误操作就是「选错目标」，多一步确认比事后撤销便宜。
+ * 单体：点技能 → 高亮可选目标 → 点头像/卡面直接执行。
+ * 自身、群体与随机技能仍显式确认后结算。
  */
 
 import { renderPortrait } from './portrait.js';
+import { playBattleVisual } from './battle-effects.js';
 import { renderPrebattle } from './prebattle.js';
 import { loadoutSceneNote } from '../core/loadout.js';
 import { OUTCOME } from '../combat/engine.js';
@@ -19,7 +19,7 @@ import { buildSceneRequest } from '../llm/scene-prompt.js';
 import { buildCheckPanel } from './frame.js';
 import { renderCheckResult, renderTurnChecks } from './check-result.js';
 import { createDiceRoller, hasFaceAssets, preloadFaces } from './dice.js';
-import { button, checkbox, clear, confirmDialog, el, formatAgo, formatTime, on, select, stat, textInput, toast } from './dom.js';
+import { button, checkbox, clear, confirmDialog, el, formatAgo, formatTime, on, openModal, select, stat, textInput, toast } from './dom.js';
 
 /** 阵营显示名。 */
 const SIDE_LABEL = { [SIDE.ALLY]: '我方', [SIDE.ENEMY]: '敌方', [SIDE.NEUTRAL]: '中立' };
@@ -41,23 +41,25 @@ export function renderBattle(app, helpers) {
         return root;
     }
 
+    root.classList.add('td-card-table', 'td-compact-table');
     root.appendChild(renderBattleHeader(app, battle, helpers));
-    root.appendChild(renderInitiativeStrip(battle));
     root.appendChild(renderUserPicker(app, battle, helpers));
-    root.appendChild(renderBanter(app, battle, helpers));
-    root.appendChild(renderUnitPanels(app, battle, helpers));
-
-    // 骰子与技能共用一个操作区，选招时无需上下寻找。
-    root.appendChild(el('div', { class: 'td-combat-console' }, [
-        renderDiceStage(app, battle),
-        renderActionBar(app, battle, helpers),
+    const panels = renderUnitPanels(app, battle, helpers);
+    root.appendChild(el('div', { class: 'td-card-arena' }, [
+        panels.allies,
+        el('div', { class: 'td-card-center' }, [
+            renderInitiativeStrip(battle), renderDiceStage(app, battle), renderBattleLog(battle),
+        ]),
+        panels.enemies,
+        panels.auxiliary,
+    ]));
+    root.appendChild(el('div', { class: 'td-card-dock' }, [
+        renderActionBar(app, battle, helpers), renderBanter(app, battle, helpers),
     ]));
 
     // 判定结束后立刻给出结算预览 —— 战斗只要还在，就还没回写战力数据，
     // 让用户能先看清楚结果再决定结束
     if (battle.phase === 'finished') root.appendChild(renderResultPanel(app, helpers, battle));
-
-    root.appendChild(renderBattleLog(battle));
 
     // ---- 自动衔接的触发点 ----
     //
@@ -81,6 +83,7 @@ export function renderBattle(app, helpers) {
         }
     }
 
+    playBattleVisual(root, app);
     return root;
 }
 
@@ -151,7 +154,7 @@ function renderDiceStage(app, battle) {
         }
     }
 
-    return buildCheckPanel({
+    const panel = buildCheckPanel({
         actorName: roll ? (roll.actorName || '本次行动') : (unit?.name ?? ''),
         checkLabel: roll?.checkKind === 'charm' ? '魅力检定'
             : roll?.checkKind === 'control' ? `${roll.skillName} · 控制豁免`
@@ -166,6 +169,18 @@ function renderDiceStage(app, battle) {
         resultLine,
         buttons,
     });
+    if (roll && !roll.rolling) {
+        const outcome = ['hit', 'crit', 'miss', 'fumble'].includes(roll.outcome) ? roll.outcome : null;
+        if (outcome) panel.classList.add(`td-dice-result-${outcome}`);
+        const special = roll.override || (outcome === 'crit' || outcome === 'fumble' ? outcome : null);
+        if (special === 'crit' || special === 'fumble') {
+            panel.classList.add(`td-dice-special-${special}`);
+            const attack = !['charm', 'control', 'dot'].includes(roll.checkKind);
+            panel.appendChild(el('div', { class: 'td-dice-special-label', role: 'status' },
+                special === 'fumble' ? '大失败' : attack ? '大成功 · 暴击' : '大成功'));
+        }
+    }
+    return panel;
 }
 
 /** 当前行动者的负面修正始终在掷骰前显示；读取快照，不重新求值骰子。 */
@@ -673,36 +688,9 @@ function renderUserPicker(app, battle, helpers) {
         ]),
     );
 
-    const buttons = el('div', { class: 'td-row td-gap td-wrap' });
-    for (const u of allies) {
-        const isCurrent = current === u;
-        buttons.appendChild(
-            button(
-                `${isCurrent ? '✓ ' : ''}${u.name}`,
-                async () => {
-                    const result = await app.setUserUnit(isCurrent ? '' : u.name);
-                    if (!result.ok) toast(result.error || '暂时无法换人', 'warning');
-                    helpers.rerender();
-                },
-                {
-                    small: true,
-                    variant: isCurrent ? 'primary' : undefined,
-                    disabled: app.busy || app._autoDriving || app._playerTurnRunning || !u.alive,
-                    title: app.busy ? '等待当前行动完成后可换人' : isCurrent ? '点一下取消指定' : `把「${u.name}」设为你的角色`,
-                },
-            ),
-        );
-    }
-    box.appendChild(buttons);
-
-    if (!current) {
-        box.appendChild(
-            el('div', { class: 'notes' }, [
-                '自动识别没成功。点上面你的角色名字即可 —— 指定后**只有你自己那一手需要操作**，队友交给 AI。',
-                `（你在酒馆里登记的 persona 名字是「${app.ctx?.name1 || '（未设置）'}」）`,
-            ].join('')),
-        );
-    }
+    box.appendChild(el('div', { class: 'notes td-card-controls-help' },
+        '双击我方卡面换人 · 长按卡面查看属性 · 键盘 Enter 执行目标 / Shift+Enter 换人 / 空格查看属性'));
+    box.setAttribute('role', 'status');
 
     return box;
 }
@@ -892,9 +880,11 @@ function renderBanter(app, battle, helpers) {
 
 /** 单位面板区。 */
 function renderUnitPanels(app, battle, helpers) {
-    const wrap = el('div', { class: 'td-battle-units' }, [
-        el('div', { class: 'notes td-roster-help' }, '点击头像更换图片 · 点击红蓝球查看属性'),
+    const wrap = el('div', { class: 'td-battle-units td-card-auxiliary' }, [
+        el('div', { class: 'notes td-roster-help' }, '头像编辑按钮上传 · 长按卡面看属性 · 双击我方换人 · 单体点头像立即执行'),
     ]);
+    const allies = el('section', { class: 'td-card-side td-card-allies', 'aria-label': '我方角色' });
+    const enemies = el('section', { class: 'td-card-side td-card-enemies', 'aria-label': '敌方角色' });
 
     for (const side of [SIDE.ALLY, SIDE.ENEMY, SIDE.NEUTRAL]) {
         const units = battle.units.filter((/** @type {any} */ u) => u.side === side && !u.mercyWithdrawn);
@@ -906,7 +896,7 @@ function renderUnitPanels(app, battle, helpers) {
         const roster = el('div', { class: 'td-roster-row' });
         for (const unit of units) roster.appendChild(renderBattleUnit(app, battle, unit, helpers));
         column.appendChild(roster);
-        wrap.appendChild(column);
+        (side === SIDE.ALLY ? allies : side === SIDE.ENEMY ? enemies : wrap).appendChild(column);
     }
     const spectators = battle.units.filter(unit => unit.mercyWithdrawn === true);
     if (spectators.length) {
@@ -919,22 +909,20 @@ function renderUnitPanels(app, battle, helpers) {
         seats.appendChild(roster);
         wrap.appendChild(seats);
     }
-    return wrap;
+    return { allies, enemies, auxiliary: wrap };
 }
 
-/** 展开状态随战斗对象回收；每次刷新UI不会把正在查看的属性折叠。 */
-const expandedUnitDetails = new WeakMap();
-
-/** 红蓝玻璃球，液面随当前资源比例变化；数值只在展开详情后出现。 */
-function resourceOrb(pool, kind, label) {
+/** 卡面底部始终显示生命与魔量，不用额外展开按钮。 */
+function cardResource(pool, kind, label) {
     const ratio = pool.max > 0 ? Number(pool.current) / Number(pool.max) : 0;
     const percent = Number.isFinite(ratio) ? Math.max(0, Math.min(100, ratio * 100)) : 0;
-    return el('span', { class: 'td-resource-wrap', 'aria-hidden': 'true' }, [
-        el('span', { class: 'td-resource-orb td-orb-' + kind }, [
-            el('span', { class: 'td-orb-liquid', style: { height: percent + '%' } }),
-            el('span', { class: 'td-orb-glass' }),
+    return el('div', { class: `td-card-resource td-card-${kind}` }, [
+        el('span', { class: 'td-card-resource-label' }, label),
+        el('span', { class: 'td-card-resource-track', role: 'progressbar', 'aria-label': label,
+            'aria-valuemin': '0', 'aria-valuemax': String(pool.max), 'aria-valuenow': String(pool.current) }, [
+            el('span', { class: 'td-card-resource-fill', style: { width: `${percent}%` } }),
         ]),
-        el('span', { class: 'td-orb-label' }, label),
+        el('strong', { class: 'td-card-resource-value' }, `${pool.current}/${pool.max}`),
     ]);
 }
 
@@ -947,8 +935,6 @@ function renderBattleUnit(app, battle, unit, helpers) {
     const mp = unit.attributes?.MP ?? { current: 0, max: 0 };
     const shield = (unit.statuses ?? []).filter(s => s.type === 'shield')
         .reduce((sum, s) => sum + (toNumber(s.power) || 0) * (s.stacks || 1), 0);
-    let expanded = expandedUnitDetails.get(battle);
-    if (!expanded) { expanded = new Set(); expandedUnitDetails.set(battle, expanded); }
     const detailId = 'td-unit-details-' + unit.id;
     const details = el('div', { class: 'td-unit-details', id: detailId }, [
         el('div', { class: 'td-resource-values' }, [
@@ -978,50 +964,128 @@ function renderBattleUnit(app, battle, unit, helpers) {
             el('span', { class: 'td-tag td-tag-sm' }, s.name + (s.duration ? '·' + s.duration : ''))
         )) : null,
     ]);
-    details.hidden = !expanded.has(unit.id);
+    details.hidden = true;
     on(details, 'click', e => e.stopPropagation());
-    const resources = el('button', {
-        type: 'button', class: 'td-resource-toggle',
-        'aria-label': unit.name + '：查看生命、魔量、攻击、护甲、速度与闪避',
-        'aria-expanded': String(!details.hidden), 'aria-controls': detailId,
-        title: '点击红蓝球查看或收起属性',
-    }, [resourceOrb(hp, 'hp', '生命'), resourceOrb(mp, 'mp', '魔量')]);
-    on(resources, 'click', e => {
-        e.stopPropagation();
-        details.hidden = !details.hidden;
-        if (details.hidden) expanded.delete(unit.id); else expanded.add(unit.id);
-        resources.setAttribute('aria-expanded', String(!details.hidden));
-    });
     const card = el('div', {
-        class: 'td-bunit td-roster-unit' + (isPlayer ? ' td-player-unit' : '') +
+        class: 'td-bunit td-roster-unit td-character-card' + (isPlayer ? ' td-player-unit' : '') +
             (isCurrent ? ' td-bunit-current' : '') + (withdrawn ? ' td-bunit-withdrawn' : unit.alive ? '' : ' td-bunit-dead'),
-        id: 'td-bunit-' + unit.id,
+        id: 'td-bunit-' + unit.id, role: 'group', tabindex: '0',
+        'aria-label': unit.name + '：长按或空格查看属性' + (unit.side === SIDE.ALLY ? '，双击或 Shift+Enter 换人' : ''),
+        'aria-keyshortcuts': 'Enter Shift+Enter Space',
     }, [
-        renderPortrait(app.ctx, unit, helpers),
+        renderPortrait(app.ctx, unit, helpers, { cardGestures: true }),
         el('div', { class: 'td-bunit-name', title: unit.name }, unit.name),
         el('div', { class: 'td-unit-role' }, withdrawn ? '观战席' : isPlayer ? '你操控' : SIDE_LABEL[unit.side] ?? '参战者'),
         isCurrent ? el('span', { class: 'td-tag td-tag-good' }, '行动中') : null,
         withdrawn ? el('span', { class: 'td-tag td-tag-good' }, '留手退出 · 存活')
             : !unit.alive ? el('span', { class: 'td-tag' }, battle.combatMode === 'spar' ? '力竭' : '倒下') : null,
-        resources, details,
+        cardResource(hp, 'hp', '生命 HP'), cardResource(mp, 'mp', '魔量 MP'), details,
     ]);
     const pending = getPendingAction(app, battle);
-    if (!withdrawn && pending && pending.candidateIds?.includes(unit.id)) {
+    if (pending?.targetIds?.includes(unit.id)) card.classList.add('td-bunit-selected');
+    if (!withdrawn && pending?.target === 'single' && pending.candidateIds?.includes(unit.id)) {
         card.classList.add('td-bunit-targetable');
-        card.appendChild(button('选为目标', async () => {
-            await executePending(app, battle, [unit.id], helpers);
-        }, { small: true, disabled: app.busy }));
-        on(card, 'click', async e => {
-            if (e.target?.closest?.('button, input, .td-unit-details')) return;
-            e.stopPropagation();
-            await executePending(app, battle, [unit.id], helpers);
-        });
+
     }
+    bindCardGestures(card, details, app, battle, unit, helpers);
     return card;
+}
+
+/** 单体卡面直接提交；我方单击延迟以避开双击换人。 */
+function bindCardGestures(card, details, app, battle, unit, helpers) {
+    const snapshot = { round: battle.round, turn: battle.turnIndex, actor: battle.currentUnit?.id,
+        chat: app.ctx?.chatId, metadata: app.ctx?.chatMetadata };
+    let holdTimer, singleTimer, pointer, suppressTrailing = false;
+    const live = () => card.isConnected && app.battle === battle && battle.round === snapshot.round &&
+        battle.turnIndex === snapshot.turn && battle.currentUnit?.id === snapshot.actor &&
+        app.ctx?.chatId === snapshot.chat && app.ctx?.chatMetadata === snapshot.metadata;
+    const blocked = () => !live() || app.busy || app._autoDriving || app._playerTurnRunning || battleSubmissions.has(battle) || battle.phase === 'finished';
+    const internal = e => e.target !== card && e.target?.closest?.('button, input, [role="button"], .td-unit-details');
+    const cancelSingle = () => { clearTimeout(singleTimer); singleTimer = undefined; };
+    const cancelHold = () => {
+        clearTimeout(holdTimer); holdTimer = undefined;
+        const id = pointer?.id; pointer = undefined;
+        if (id !== undefined && card.hasPointerCapture?.(id)) card.releasePointerCapture(id);
+        globalThis.window?.removeEventListener?.('blur', cancelHold);
+    };
+    const showDetails = () => {
+        if (!live()) return;
+        cancelSingle();
+        const body = details.cloneNode(true);
+        body.removeAttribute('id'); body.hidden = false;
+        const overlay = openModal({ title: unit.name + ' · 属性', body, hideConfirm: true,
+            onClose: () => { if (card.isConnected) card.focus(); } });
+        overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', unit.name + ' · 属性');
+        overlay.setAttribute('tabindex', '-1'); overlay.focus();
+    };
+    const chooseTarget = (expectedPending) => {
+        if (blocked()) return;
+        const pending = getPendingAction(app, battle);
+        if ((!expectedPending || pending === expectedPending) && !unit.mercyWithdrawn && pending?.target === 'single' && pending.candidateIds.includes(unit.id)) {
+            selectTarget(app, battle, unit.id, helpers);
+        }
+    };
+    const switchPlayer = async () => {
+        cancelSingle(); cancelHold();
+        if (blocked() || unit.side !== SIDE.ALLY || !unit.alive || unit.mercyWithdrawn || app.isUserUnit(unit)) return;
+        const result = await app.setUserUnit(unit.name);
+        if (!result.ok) toast(result.error || '暂时无法换人', 'warning');
+        if (app.battle === battle && app.ctx?.chatId === snapshot.chat && app.ctx?.chatMetadata === snapshot.metadata) helpers.rerender();
+    };
+    on(card, 'pointerdown', e => {
+        if (internal(e) || e.button !== 0 || e.isPrimary === false || !live()) return;
+        cancelHold(); cancelSingle(); suppressTrailing = false;
+        pointer = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        card.setPointerCapture?.(e.pointerId);
+        // Only the active press owns a window listener; release always removes it.
+        globalThis.window?.addEventListener?.('blur', cancelHold, { once: true });
+        holdTimer = setTimeout(() => {
+            holdTimer = undefined;
+            if (!live() || !pointer) { cancelHold(); return; }
+            suppressTrailing = true;
+            cancelHold(); showDetails();
+        }, 550);
+    });
+    on(card, 'pointermove', e => {
+        if (pointer && e.pointerId === pointer.id && Math.hypot(e.clientX - pointer.x, e.clientY - pointer.y) > 8) cancelHold();
+    });
+    for (const event of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) {
+        on(card, event, e => { if (pointer && (e.pointerId === undefined || e.pointerId === pointer.id)) cancelHold(); });
+    }
+    on(card, 'blur', cancelHold);
+    on(card, 'click', e => {
+        if (internal(e)) return;
+        e.stopPropagation();
+        if (suppressTrailing) { e.preventDefault(); return; }
+        if (unit.side === SIDE.ALLY) {
+            cancelSingle();
+            const pending = getPendingAction(app, battle);
+            if (blocked() || !pending) return;
+            singleTimer = setTimeout(() => { singleTimer = undefined; chooseTarget(pending); }, 400);
+        } else chooseTarget();
+    });
+    on(card, 'dblclick', e => {
+        if (internal(e)) return;
+        e.preventDefault(); e.stopPropagation(); cancelSingle();
+        if (suppressTrailing) return;
+        switchPlayer();
+    });
+    on(card, 'keydown', e => {
+        if (internal(e) || e.repeat) return;
+        if (e.key === 'Enter') {
+            e.preventDefault(); e.stopPropagation(); cancelSingle();
+            if (e.shiftKey) switchPlayer(); else chooseTarget();
+        } else if (e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault(); e.stopPropagation(); cancelHold(); showDetails();
+        }
+    });
 }
 
 /** 待执行的动作（选了技能、还没选目标）。 */
 let pendingAction = new WeakMap();
+const battleSubmissions = new WeakSet();
+const actionBlocked = (app, battle) => app.busy || app._autoDriving || app._playerTurnRunning || battleSubmissions.has(battle);
 const BASIC_ATTACK = Object.freeze({ id: '', name: '普通攻击', target: 'single', effects: [{ type: 'damage' }] });
 function actionUnit(app, battle) {
     return typeof app.getActionUnit === 'function' ? app.getActionUnit() : battle.currentUnit;
@@ -1029,16 +1093,19 @@ function actionUnit(app, battle) {
 
 function getPendingAction(app, battle) {
     const pending = pendingAction.get(battle);
-    if (!pending) return null;
+    if (!pending || pending.submitting || actionBlocked(app, battle)) return null;
     const unit = actionUnit(app, battle);
     const manual = unit && (app.isUserUnit(unit) || (unit.side === 'ally' && app.settings.battle.aiControlsAllies === false));
     const skill = pending.skillId ? unit?.skills?.find(s => s.id === pending.skillId) : BASIC_ATTACK;
-    if (!manual || battle.phase === 'finished' || pending.unitId !== unit?.id ||
+    if (app.battle !== battle || !manual || !unit.alive || battle.phase === 'finished' || pending.unitId !== unit?.id ||
+        pending.chatId !== app.ctx?.chatId || pending.metadata !== app.ctx?.chatMetadata ||
         pending.round !== battle.round || pending.turnIndex !== battle.turnIndex || !skill) {
         pendingAction.delete(battle);
         return null;
     }
     pending.candidateIds = battle.targetCandidates(unit, skill).map(target => target.id);
+    pending.target = skill.target ?? 'single';
+    pending.targetIds = pending.targetIds.filter(id => pending.candidateIds.includes(id));
     return pending;
 }
 
@@ -1066,11 +1133,11 @@ function renderActionBar(app, battle, helpers) {
     if (!isPlayer && !manualAlly) {
         const owners = battle.units.filter(u => app.isUserUnit(u));
         if (owners.length !== 1) {
-            wrap.appendChild(el('div', { class: 'notes' }, '请先在上方指定你操控的角色，自动行动已暂停。'));
+            wrap.appendChild(el('div', { class: 'notes' }, '请双击我方卡面指定操控角色，自动行动已暂停。'));
             return wrap;
         }
         if (app._autoDriveStop && !app._autoDriving && !app._playerTurnRunning) {
-            wrap.appendChild(el('div', { class: 'notes' }, '自动行动已暂停。可在上方重新选择你要操控的角色。'));
+            wrap.appendChild(el('div', { class: 'notes' }, '自动行动已暂停。可双击我方卡面重新选择操控角色。'));
             return wrap;
         }
         wrap.appendChild(el('div', { class: 'td-action-head' }, (app._autoDriving || app._playerTurnRunning ? 'AI 正在处理：' : '等待自动行动：') + unit.name));
@@ -1081,6 +1148,14 @@ function renderActionBar(app, battle, helpers) {
         return wrap;
     }
     const pending = getPendingAction(app, battle);
+    const selectionSnapshot = { round: battle.round, turn: battle.turnIndex, actor: unit.id,
+        chat: app.ctx?.chatId, metadata: app.ctx?.chatMetadata };
+    const chooseSkill = skill => {
+        if (app.battle !== battle || battle.round !== selectionSnapshot.round || battle.turnIndex !== selectionSnapshot.turn ||
+            actionUnit(app, battle)?.id !== selectionSnapshot.actor || app.ctx?.chatId !== selectionSnapshot.chat ||
+            app.ctx?.chatMetadata !== selectionSnapshot.metadata) return;
+        return selectSkill(app, battle, skill, helpers);
+    };
 
     wrap.appendChild(
         el('div', { class: 'td-action-head' }, [
@@ -1098,12 +1173,12 @@ function renderActionBar(app, battle, helpers) {
         '换人不会推进回合。选定技能与目标后才开始行动；仍按先攻顺序处理，执行前会复核目标。'));
 
     // 普通攻击
-    const basicSkillRow = el('div', { class: 'td-skill-buttons' });
-    basicSkillRow.appendChild(
-        button('普通攻击 · 单体', () => selectSkill(app, battle, BASIC_ATTACK, helpers), {
-            title: '用攻击力进行普通攻击；选择目标后执行', disabled: app.busy,
-        }),
-    );
+    const basicSkillRow = el('div', { class: 'td-skill-buttons td-skill-hand' });
+    const basicButton = button('', () => chooseSkill(BASIC_ATTACK), {
+        title: '用攻击力进行普通攻击；点击合法目标头像立即执行', disabled: actionBlocked(app, battle),
+    });
+    decorateSkillCard(basicButton, BASIC_ATTACK, '单体 · 伤害', pending, '');
+    basicSkillRow.appendChild(basicButton);
 
     // 技能按钮
     for (const skill of unit.skills ?? []) {
@@ -1125,14 +1200,13 @@ function renderActionBar(app, battle, helpers) {
             .filter(Boolean)
             .join(' · ');
 
-        basicSkillRow.appendChild(
-            button(
-                label,
+        const skillButton = button(
+                '',
                 () => {
-                    selectSkill(app, battle, skill, helpers);
+                    chooseSkill(skill);
                 },
                 {
-                    disabled: app.busy || !usable.usable,
+                    disabled: actionBlocked(app, battle) || !usable.usable,
                     title: usable.usable
                         ? [
                               skill.description || '',
@@ -1146,8 +1220,10 @@ function renderActionBar(app, battle, helpers) {
                               .join('\n')
                         : usable.reason,
                 },
-            ),
-        );
+            );
+        decorateSkillCard(skillButton, skill, `${aimLabel} · 威${skill.power} · ${TARGET_LABEL[skill.target] ?? skill.target} · ${effects}`, pending, usable.usable ? '' : usable.reason);
+        skillButton.setAttribute('aria-label', label);
+        basicSkillRow.appendChild(skillButton);
     }
 
     wrap.appendChild(basicSkillRow);
@@ -1155,21 +1231,45 @@ function renderActionBar(app, battle, helpers) {
         const choices = el('div', { class: 'td-target-picker', role: 'group', 'aria-label': '选择技能目标' }, [
             el('b', {}, `「${pending.skillName}」选定目标`),
         ]);
-        for (const target of battle.units.filter(target => pending.candidateIds.includes(target.id))) {
-            const choice = button(`选择 ${target.name}`, () => executePending(app, battle, [target.id], helpers), {
-                disabled: app.busy, title: `${target.name} · HP ${target.attributes?.HP?.current ?? 0}/${target.attributes?.HP?.max ?? 0}`,
-            });
-            choice.setAttribute('data-target-id', target.id);
-            choices.appendChild(choice);
-        }
+        if (pending.target !== 'single') choices.appendChild(el('div', { class: 'notes' }, pending.target === 'self'
+            ? '自身技能：已自动选择行动者，点击执行行动后才生效。'
+            : '群体或随机目标由引擎按技能规则决定，点击执行行动确认；不会自定义目标或提前掷骰。'));
+        if (pending.target === 'single') choices.appendChild(el('div', { class: 'notes' },
+            '点击高亮目标的头像或卡面立即执行（键盘 Enter）；我方单击稍候执行，双击仅换人。'));
         if (!pending.candidateIds.length) choices.appendChild(el('div', { class: 'notes' }, '已没有合法目标，请重新选择技能。'));
+        const selectedSkill = pending.skillId ? unit.skills?.find(skill => skill.id === pending.skillId) : BASIC_ATTACK;
+        if (selectedSkill) wrap.appendChild(el('div', { class: 'td-selected-skill-details' }, [
+            el('b', {}, selectedSkill.name),
+            selectedSkill.description ? el('div', {}, selectedSkill.description) : null,
+            ...skillMechanicsText(selectedSkill, battle.ruleset).map(line => el('div', {}, line)),
+        ]));
+        if (pending.target !== 'single') {
+            const ready = pending.candidateIds.length > 0;
+            const execute = button('执行行动', () => executePending(app, battle, helpers), {
+                disabled: actionBlocked(app, battle) || !ready,
+                title: ready ? '确认所选技能并执行本回合行动' : '请先选择一个合法目标', variant: 'primary',
+            });
+            execute.classList.add('td-execute-action');
+            choices.appendChild(execute);
+        }
         wrap.appendChild(choices);
     }
     return wrap;
 }
 
+function decorateSkillCard(node, skill, info, pending, reason) {
+    node.classList.add('td-skill-card');
+    if (pending?.skillId === skill.id) node.classList.add('td-skill-selected');
+    node.setAttribute('data-skill-id', skill.id);
+    node.setAttribute('aria-pressed', String(pending?.skillId === skill.id));
+    node.appendChild(el('strong', { class: 'td-skill-name' }, skill.name));
+    node.appendChild(el('span', { class: 'td-skill-cost' }, `消耗 ${skill.cost || 0}`));
+    node.appendChild(el('span', { class: 'td-skill-info' }, info));
+    if (reason) node.appendChild(el('span', { class: 'td-skill-disabled-reason' }, reason));
+}
+
 /**
- * 单体技能始终显式选目标（包括唯一目标）；群体、自身及随机技能直接交引擎结算。
+ * 所有技能只更新草稿。单体显式选一目标；自身自动自己；群体与随机等待提交后交引擎。
  * @param {import('../app.js').AppController} app
  * @param {any} battle
  * @param {any} skill
@@ -1177,22 +1277,22 @@ function renderActionBar(app, battle, helpers) {
  */
 async function selectSkill(app, battle, skill, helpers) {
     const unit = actionUnit(app, battle);
-    if (!unit || app.busy || app.battle !== battle || battle.phase === 'finished') return;
+    if (!unit || actionBlocked(app, battle) || app.battle !== battle || battle.phase === 'finished') return;
     if (!app.isUserUnit(unit) && !(unit.side === 'ally' && app.settings.battle.aiControlsAllies === false)) return;
+    const liveSkill = skill.id ? unit.skills?.find(entry => entry.id === skill.id) : BASIC_ATTACK;
+    if (!liveSkill || !unit.alive || !canUseSkill(unit, liveSkill).usable) return;
+    skill = liveSkill;
     const candidates = battle.targetCandidates(unit, skill);
 
     if (!candidates.length) {
         toast('这个技能当前没有可用目标', 'warning');
         return;
     }
-    if (skill.target !== 'single') {
-        pendingAction.delete(battle);
-        const result = await (app.isUserUnit(unit) ? app.playPlayerTurn.bind(app) : app.act.bind(app))({ skillId: skill.id });
-        if (!result?.ok) toast(result?.error || '行动未执行', 'warning');
-        helpers.rerender();
-        return;
-    }
     pendingAction.set(battle, {
+        chatId: app.ctx?.chatId,
+        metadata: app.ctx?.chatMetadata,
+        target: skill.target ?? 'single',
+        targetIds: skill.target === 'self' ? [unit.id] : [],
         unitId: unit.id,
         round: battle.round,
         turnIndex: battle.turnIndex,
@@ -1201,30 +1301,49 @@ async function selectSkill(app, battle, skill, helpers) {
         candidateIds: candidates.map((/** @type {any} */ c) => c.id),
     });
     helpers.rerender();
-    toast(`请点击「${skill.name}」的目标`, 'info');
+    toast((skill.target ?? 'single') === 'single' ? `请点击「${skill.name}」的目标头像立即执行` : `已选择「${skill.name}」，请确认执行行动`, 'info');
 }
 
 /**
- * 执行待选目标动作。
+ * 显式提交待确认动作；提交前复核聊天、战斗、回合、行动者、技能和目标。
  * @param {import('../app.js').AppController} app
  * @param {any} battle
- * @param {string[]} targetIds
  * @param {{rerender: () => void}} helpers
  */
-async function executePending(app, battle, targetIds, helpers) {
+async function selectTarget(app, battle, targetId, helpers) {
     const pending = getPendingAction(app, battle);
-    if (!pending || app.busy || app.battle !== battle) return;
-    if (targetIds.length !== 1 || !pending.candidateIds.includes(targetIds[0])) {
-        toast('目标已失效，请重新选择', 'warning');
+    if (!pending || actionBlocked(app, battle) || pending.target !== 'single' || !pending.candidateIds.includes(targetId)) return;
+    pending.targetIds = [targetId];
+    await executePending(app, battle, helpers);
+}
+
+async function executePending(app, battle, helpers) {
+    const pending = getPendingAction(app, battle);
+    if (!pending || actionBlocked(app, battle) || app.battle !== battle || pending.submitting) return;
+    const unit = actionUnit(app, battle);
+    const skill = pending.skillId ? unit?.skills?.find(entry => entry.id === pending.skillId) : BASIC_ATTACK;
+    const usable = skill && canUseSkill(unit, skill);
+    if (!usable?.usable || !pending.candidateIds.length ||
+        (pending.target === 'single' && (pending.targetIds.length !== 1 || !pending.candidateIds.includes(pending.targetIds[0])))) {
+        toast(usable?.reason || '技能或目标已失效，请重新选择', 'warning');
         helpers.rerender();
         return;
     }
+    // 群体、随机、自身交给引擎：不生成自定义目标，也不为预览消耗 RNG。
+    const action = { skillId: pending.skillId, action: pending.skillId ? 'skill' : 'attack',
+        ...(pending.target === 'single' ? { targetIds: [...pending.targetIds] } : {}) };
+    pending.submitting = true;
+    battleSubmissions.add(battle);
     pendingAction.delete(battle);
-    const result = await (app.isUserUnit(actionUnit(app, battle)) ? app.playPlayerTurn.bind(app) : app.act.bind(app))({
-        skillId: pending.skillId, targetIds, action: pending.skillId ? 'skill' : 'attack',
-    });
-    if (!result?.ok) toast(result?.error || '行动未执行', 'warning');
-    helpers.rerender();
+    try {
+        const result = await (app.isUserUnit(unit) ? app.playPlayerTurn.bind(app) : app.act.bind(app))(action);
+        if (!result?.ok) toast(result?.error || '行动未执行', 'warning');
+    } catch {
+        toast('行动未执行，请重试', 'warning');
+    } finally {
+        battleSubmissions.delete(battle);
+        helpers.rerender();
+    }
 }
 
 /** 自动推进。 */

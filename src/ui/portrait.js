@@ -2,12 +2,12 @@ import { getPortrait, savePortrait, portraitKey } from '../core/portraits.js';
 import { el, on, toast } from './dom.js';
 
 /** 紧凑头像：图片仅存本地 IndexedDB，不写入聊天存档。 */
-export function renderPortrait(ctx, unit, helpers) {
+export function renderPortrait(ctx, unit, helpers, options = {}) {
     const first = Array.from(String(unit.name ?? '').trim())[0] || '？';
-    const face = el('button', {
-        type: 'button', class: 'td-portrait',
-        title: `${unit.name}：点击上传或更换头像`,
-        'aria-label': `${unit.name}，上传或更换头像`,
+    const face = el(options.cardGestures ? 'div' : 'button', {
+        type: options.cardGestures ? null : 'button', class: 'td-portrait',
+        title: options.cardGestures ? `${unit.name}：选技能后点击头像立即执行，长按查看属性，双击我方换人` : `${unit.name}：点击上传或更换头像`,
+        'aria-label': options.cardGestures ? unit.name : `${unit.name}，上传或更换头像`,
     }, el('span', { class: 'td-portrait-initial', 'aria-hidden': 'true' }, first));
     const input = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true });
     const wrap = el('div', { class: 'td-portrait-wrap' }, [face, input]);
@@ -33,7 +33,12 @@ export function renderPortrait(ctx, unit, helpers) {
         // 首字仍可正常显示；用户点击上传时会收到明确的保存错误。
         face.title = `${unit.name}：${error.message}；点击重试上传`;
     });
-    on(face, 'click', (event) => {
+    const upload = options.cardGestures ? el('button', {
+        type: 'button', class: 'td-portrait-edit', title: `${unit.name}：上传或更换头像`,
+        'aria-label': `${unit.name}，上传或更换头像`,
+    }, '✎') : face;
+    if (options.cardGestures) wrap.appendChild(upload);
+    on(upload, 'click', (event) => {
         event.stopPropagation();
         input.click();
     });
@@ -42,7 +47,7 @@ export function renderPortrait(ctx, unit, helpers) {
         event.stopPropagation();
         const file = input.files?.[0];
         if (!file) return;
-        face.disabled = true;
+        upload.disabled = true;
         try {
             if (!key) key = portraitKey(ctx, unit);
             if (file.size > 5 * 1024 * 1024) throw new Error('头像图片不能超过 5 MB');
@@ -63,7 +68,7 @@ export function renderPortrait(ctx, unit, helpers) {
         } catch (error) {
             toast(error.message || '头像保存失败', 'error');
         } finally {
-            face.disabled = false;
+            upload.disabled = false;
             input.value = '';
         }
     });

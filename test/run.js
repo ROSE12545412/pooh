@@ -17,6 +17,7 @@ import { spec } from 'node:test/reporters';
 import './config.test.js';
 import './store.test.js';
 import './portraits.test.js';
+import './battle-effects.test.js';
 import './rng.test.js';
 import './ruleset.test.js';
 import './schema.test.js';
@@ -55,6 +56,7 @@ import './loadout-app.test.js';
 import './loadout-ui.test.js';
 import './loadout-chat.test.js';
 import './scene-cleanup.test.js';
+import './app-chat-isolation.test.js';
 import './mercy.test.js';
 import './mercy-app.test.js';
 import './mercy-ui.test.js';
@@ -63,6 +65,7 @@ import './prebattle-ui.test.js';
 import './mobile-panel.test.js';
 import './ai-targets.test.js';
 import './equipment-checks.test.js';
+import './card-battle.test.js';
 import './release.test.js';
 
 // concurrency 1 + 不派生子进程：所有测试都在这个进程里跑完。

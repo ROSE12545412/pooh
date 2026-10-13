@@ -23,6 +23,12 @@ import {
 describe('公式编译与求值', () => {
     const scope = { Aim: 120, Atk: 30, Speed: 20, Armor: 5, Evasion: 10, power: 40, nat: 10 };
 
+    it('编译时拒绝超大骰子，不能借自定义 RNG 或追踪钩子绕过', () => {
+        assert.throws(() => compileFormula('999999999999d20'), /骰子数量/);
+        assert.throws(() => compileFormula('2d999999999999999999999'), /骰子面数/);
+        assert.equal(compileFormula('1000d6')({ __rng: { dice: () => ({ total: 3500 }) } }), 3500);
+    });
+
     it('四则运算与优先级', () => {
         assert.equal(compileFormula('1 + 2 * 3')(scope), 7);
         assert.equal(compileFormula('(1 + 2) * 3')(scope), 9);

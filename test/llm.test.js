@@ -9,6 +9,8 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 
 import {
+    ABORT_MESSAGE,
+    LlmClient,
     closeUnbalanced,
     countTokens,
     deriveMaxTokens,
@@ -331,6 +333,179 @@ describe('countTokens', () => {
 
     it('空文本返回 0', async () => {
         assert.equal(await countTokens(null, ''), 0);
+    });
+});
+
+describe('complete 每次尝试的超时与取消', () => {
+    const makeClient = (config = {}, ctx = null) => new LlmClient(ctx, {
+        mode: 'custom', apiUrl: 'https://llm.invalid/v1', model: 'test',
+        timeout: 0.02, retries: 0, ...config,
+    }, '测试');
+    const success = () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }));
+    const pendingFetch = (signal, onAbort = () => {}) => new Promise((resolve, reject) => {
+        assert.ok(signal instanceof AbortSignal);
+        assert.equal(signal.aborted, false);
+        signal.addEventListener('abort', () => {
+            onAbort();
+            // 模拟常见 fetch 实现：不管 reason 都返回 AbortError。
+            reject(new DOMException('The operation was aborted', 'AbortError'));
+        }, { once: true });
+    });
+
+    it('超时真正终止 custom fetch，且不误报用户取消', async (t) => {
+        let requestSignal;
+        let aborted = 0;
+        t.mock.method(globalThis, 'fetch', async (url, init) => {
+            requestSignal = init.signal;
+            return pendingFetch(init.signal, () => aborted++);
+        });
+        const result = await makeClient().complete({ user: 'u' });
+        assert.equal(result.ok, false);
+        assert.match(result.error, /超时/);
+        assert.equal(result.aborted, undefined);
+        assert.equal(requestSignal.aborted, true);
+        assert.equal(aborted, 1);
+        assert.equal(result.meta.attempts, 1);
+    });
+
+    it('超时可重试，每次使用新 signal，前一次在重试前已终止', async (t) => {
+        const signals = [];
+        let active = 0;
+        let peak = 0;
+        t.mock.method(globalThis, 'fetch', async (url, init) => {
+            signals.push(init.signal);
+            active++;
+            peak = Math.max(peak, active);
+            if (signals.length === 1) return pendingFetch(init.signal, () => active--);
+            assert.equal(signals[0].aborted, true);
+            assert.equal(init.signal.aborted, false);
+            active--;
+            return success();
+        });
+        const result = await makeClient({ retries: 1 }).complete({ user: 'u' });
+        assert.equal(result.ok, true);
+        assert.equal(result.text, 'ok');
+        assert.equal(result.meta.attempts, 2);
+        assert.equal(signals.length, 2);
+        assert.notEqual(signals[0], signals[1]);
+        assert.equal(peak, 1, '不应叠加在途 fetch');
+        assert.equal(active, 0);
+    });
+
+    it('用户取消联动底层 fetch，停止重试并移除用户 listener', async (t) => {
+        const user = new AbortController();
+        const add = t.mock.method(user.signal, 'addEventListener');
+        const remove = t.mock.method(user.signal, 'removeEventListener');
+        let requestSignal;
+        t.mock.method(globalThis, 'fetch', async (url, init) => {
+            requestSignal = init.signal;
+            const pending = pendingFetch(init.signal);
+            user.abort(new Error('user stop'));
+            return pending;
+        });
+        const result = await makeClient({ retries: 2, timeout: 30 }).complete({ user: 'u', signal: user.signal });
+        assert.equal(result.ok, false);
+        assert.equal(result.error, ABORT_MESSAGE);
+        assert.equal(result.aborted, true);
+        assert.equal(result.meta.attempts, 1);
+        assert.equal(requestSignal.aborted, true);
+        assert.equal(add.mock.callCount(), 1);
+        assert.equal(remove.mock.callCount(), 1);
+        assert.equal(add.mock.calls[0].arguments[1], remove.mock.calls[0].arguments[1]);
+    });
+
+    it('重试退避期间用户取消，清除退避 timer 且不再发请求', async (t) => {
+        const user = new AbortController();
+        let cancelTimer;
+        t.after(() => clearTimeout(cancelTimer));
+        const fetchMock = t.mock.method(globalThis, 'fetch', async () => {
+            cancelTimer = setTimeout(() => user.abort(), 10);
+            throw new Error('temporary failure');
+        });
+        const result = await makeClient({ retries: 2, timeout: 30 }).complete({ user: 'u', signal: user.signal });
+        assert.equal(result.aborted, true);
+        assert.equal(result.error, ABORT_MESSAGE);
+        assert.equal(result.meta.attempts, 1);
+        assert.equal(fetchMock.mock.callCount(), 1);
+    });
+
+    it('已取消的用户 signal 不发请求', async (t) => {
+        const user = new AbortController();
+        user.abort();
+        const fetchMock = t.mock.method(globalThis, 'fetch', async () => success());
+        const result = await makeClient({ retries: 2 }).complete({ user: 'u', signal: user.signal });
+        assert.equal(result.aborted, true);
+        assert.equal(result.meta.attempts, 0);
+        assert.equal(fetchMock.mock.callCount(), 0);
+    });
+
+    it('成功后清除 timeout 和用户 listener，不会迟到中断', async (t) => {
+        const user = new AbortController();
+        const remove = t.mock.method(user.signal, 'removeEventListener');
+        let requestSignal;
+        t.mock.method(globalThis, 'fetch', async (url, init) => {
+            requestSignal = init.signal;
+            return success();
+        });
+        const result = await makeClient().complete({ user: 'u', signal: user.signal });
+        assert.equal(result.ok, true);
+        assert.equal(remove.mock.callCount(), 1);
+        user.abort();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        assert.equal(requestSignal.aborted, false);
+    });
+
+    it('失败后也清除 timeout 和用户 listener', async (t) => {
+        const user = new AbortController();
+        const remove = t.mock.method(user.signal, 'removeEventListener');
+        let requestSignal;
+        t.mock.method(globalThis, 'fetch', async (url, init) => {
+            requestSignal = init.signal;
+            throw new Error('network broken');
+        });
+        const result = await makeClient().complete({ user: 'u', signal: user.signal });
+        assert.match(result.error, /network broken/);
+        assert.equal(remove.mock.callCount(), 1);
+        user.abort();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        assert.equal(requestSignal.aborted, false);
+    });
+
+    it('旧 helper 忽略 signal 时用户取消仍及时返回，传参保留', async (t) => {
+        const user = new AbortController();
+        let params;
+        // 安全安装并在测试结束还原 helper，即使原环境不存在这个字段。
+        const previous = Object.getOwnPropertyDescriptor(globalThis, 'TavernHelper');
+        t.after(() => {
+            if (previous) Object.defineProperty(globalThis, 'TavernHelper', previous);
+            else delete globalThis.TavernHelper;
+        });
+        globalThis.TavernHelper = { generateRaw: async (value) => {
+            params = value;
+            user.abort();
+            return new Promise(() => {});
+        } };
+        const result = await makeClient({ mode: 'tavern-helper', timeout: 30 }).complete({ user: 'u', signal: user.signal });
+        assert.equal(result.aborted, true);
+        assert.equal(params.signal.aborted, true);
+        assert.equal(params.custom_api.model, 'test');
+        assert.equal(params.ordered_prompts[0].content, 'u');
+    });
+
+    it('profile 保留响应提取与第四参 signal，超时能中断', async () => {
+        let args;
+        const ctx = { ConnectionManagerRequestService: { sendRequest: async (...value) => {
+            args = value;
+            return pendingFetch(value[3].signal);
+        } } };
+        const result = await makeClient({ mode: 'profile', profileId: 'p' }, ctx).complete({ user: 'u' });
+        assert.match(result.error, /超时/);
+        assert.equal(result.aborted, undefined);
+        assert.equal(args[0], 'p');
+        assert.equal(args[1][0].content, 'u');
+        assert.equal(args[3].signal.aborted, true);
+        ctx.ConnectionManagerRequestService.sendRequest = async () => ({ result: { choices: [{ message: { content: 'profile ok' } }] } });
+        assert.equal((await makeClient({ mode: 'profile', profileId: 'p' }, ctx).complete({ user: 'u' })).text, 'profile ok');
     });
 });
 

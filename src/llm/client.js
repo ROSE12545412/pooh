@@ -266,6 +266,56 @@ export function withTimeout(promise, ms, label = 'LLM 调用') {
 }
 
 /**
+ * 每次尝试独立的取消范围：超时先报告 TimeoutError，再中断底层传输。
+ * 即便旧 helper/profile 忽略 signal，也能及时结束等待；公开 withTimeout 保持不变。
+ * @template T
+ * @param {(signal: AbortSignal) => Promise<T>} task
+ * @param {number} ms
+ * @param {string} label
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<T>}
+ */
+async function withAttemptAbort(task, ms, label, signal) {
+    const controller = new AbortController();
+    let timer;
+    let onAbort;
+    const cancelled = new Promise((resolve, reject) => {
+        onAbort = () => {
+            const error = new Error(ABORT_MESSAGE);
+            error.name = 'AbortError';
+            reject(error);
+            controller.abort(signal?.reason ?? error);
+        };
+        if (signal?.aborted) {
+            onAbort();
+            return;
+        }
+        signal?.addEventListener('abort', onAbort, { once: true });
+        if (ms > 0) {
+            timer = setTimeout(() => {
+                const error = new Error(`${label}超时（${Math.round(ms / 1000)} 秒）`);
+                error.name = 'TimeoutError';
+                // 先 reject，避免 fetch 的 AbortError 抢先把超时误判为用户取消。
+                reject(error);
+                controller.abort(error);
+            }, ms);
+        }
+    });
+    try {
+        return await Promise.race([
+            cancelled,
+            Promise.resolve().then(() => {
+                if (controller.signal.aborted) throw controller.signal.reason;
+                return task(controller.signal);
+            }),
+        ]);
+    } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+    }
+}
+
+/**
  * 估算输入的 token 数。优先用酒馆自带的计数器。
  * @param {any} ctx
  * @param {string} text
@@ -383,18 +433,19 @@ export class LlmClient {
             /** 每次尝试前清空，避免把上一轮的提示带进来。 */
             this.lastNotice = '';
             try {
-                const text = await withTimeout(
-                    this._dispatch(
+                const text = await withAttemptAbort(
+                    (attemptSignal) => this._dispatch(
                         messages,
                         {
                             maxTokens,
                             temperature,
                             jsonSchema: this.config.useJsonSchema ? req.jsonSchema : undefined,
-                            signal,
+                            signal: attemptSignal,
                         },
                     ),
                     timeoutMs,
                     `${this.label} `,
+                    signal,
                 );
                 if (!text || !text.trim()) {
                     lastError = '模型返回了空内容';
@@ -585,18 +636,20 @@ export class LlmClient {
 
         let res = await send(Boolean(opts.jsonSchema));
 
+        // 每个错误 response 只消费一次 body，检测降级与最终诊断共用详情。
+        let detail = res.ok ? '' : await readError(res);
         // JSON Schema 不被支持 → 去掉重试一次
-        if (!res.ok && opts.jsonSchema && isJsonSchemaUnsupported(res.status, await readError(res))) {
+        if (!res.ok && opts.jsonSchema && isJsonSchemaUnsupported(res.status, detail)) {
             console.warn(
                 `[战斗掷骰] 端点不接受 response_format（HTTP ${res.status}），` +
                     `已自动去掉 JSON Schema 约束重试。若仍解析失败，请到设置里关掉「强制 JSON Schema」。`,
             );
             this.lastNotice = '端点不支持 JSON Schema，已自动改用纯提示词约束';
             res = await send(false);
+            detail = res.ok ? '' : await readError(res);
         }
 
         if (!res.ok) {
-            const detail = await readError(res);
             throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ''}`);
         }
 

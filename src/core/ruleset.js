@@ -28,7 +28,7 @@
  */
 
 import { toNumber, toText } from './schema.js';
-import { Rng } from './rng.js';
+import { Rng, validateDiceSize } from './rng.js';
 
 // ---------------------------------------------------------------------------
 // 预设
@@ -607,6 +607,7 @@ export function compileFormula(formula) {
             pos++;
             const count = token.count;
             const faces = token.faces;
+            validateDiceSize(count, faces);
             // 追踪钩子只在这个节点真正执行时调用；短路分支不会预掷骰子。
             return (/** @type {any} */ s) => {
                 if (typeof s.__rollDice === 'function') {

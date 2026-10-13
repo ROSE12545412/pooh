@@ -225,6 +225,70 @@ describe('直连遇到 schema 不支持时自动降级重试', () => {
         assert.match(result.error, /model not found/);
     });
 
+    it('真实单次消费 body：HTTP 401 保留诊断且不触发 schema 降级', async (t) => {
+        const response = new Response('{"error":{"message":"invalid API key"}}', { status: 401 });
+        const read = t.mock.method(response, 'text');
+        const fetchMock = t.mock.method(globalThis, 'fetch', async () => response);
+        const client = new LlmClient(null, {
+            mode: 'custom', apiUrl: 'https://llm.invalid/v1', model: 'x',
+            useJsonSchema: true, retries: 0, timeout: 30,
+        }, '测试');
+        const result = await client.complete({ user: 'u', jsonSchema: { name: 'x', value: { type: 'object' } } });
+        assert.equal(result.ok, false);
+        assert.match(result.error, /HTTP 401.*invalid API key/);
+        assert.equal(fetchMock.mock.callCount(), 1);
+        assert.equal(read.mock.callCount(), 1, '错误 body 只能读取一次');
+        assert.equal(response.bodyUsed, true);
+    });
+
+    it('降级后的新错误 response 只读一次，报告新诊断而非旧 schema 错误', async (t) => {
+        const responses = [
+            new Response('response_format unsupported', { status: 400 }),
+            new Response('fallback quota exhausted', { status: 429 }),
+        ];
+        const reads = responses.map((res) => t.mock.method(res, 'text'));
+        const bodies = [];
+        t.mock.method(globalThis, 'fetch', async (url, init) => {
+            bodies.push(JSON.parse(init.body));
+            assert.ok(bodies.length <= 2, 'schema 降级只允许一次');
+            return responses[bodies.length - 1];
+        });
+        const client = new LlmClient(null, {
+            mode: 'custom', apiUrl: 'https://llm.invalid/v1', model: 'x',
+            useJsonSchema: true, retries: 0, timeout: 30,
+        }, '测试');
+        const result = await client.complete({ user: 'u', jsonSchema: { name: 'x', value: { type: 'object' } } });
+        assert.equal(result.ok, false);
+        assert.match(result.error, /HTTP 429.*fallback quota exhausted/);
+        assert.doesNotMatch(result.error, /response_format/);
+        assert.equal(bodies.length, 2);
+        assert.ok(bodies[0].response_format);
+        assert.equal(bodies[1].response_format, undefined);
+        assert.deepEqual(reads.map((read) => read.mock.callCount()), [1, 1]);
+    });
+
+    it('真实 response schema 降级成功，第二个 body 用 json 读取而非 text', async (t) => {
+        const first = new Response('json_schema unsupported', { status: 422 });
+        const second = new Response(JSON.stringify({ choices: [{ message: { content: 'fallback ok' } }] }));
+        const firstText = t.mock.method(first, 'text');
+        const secondText = t.mock.method(second, 'text');
+        const secondJson = t.mock.method(second, 'json');
+        let calls = 0;
+        t.mock.method(globalThis, 'fetch', async () => ++calls === 1 ? first : second);
+        const client = new LlmClient(null, {
+            mode: 'custom', apiUrl: 'https://llm.invalid/v1', model: 'x',
+            useJsonSchema: true, retries: 0, timeout: 30,
+        }, '测试');
+        const result = await client.complete({ user: 'u', jsonSchema: { name: 'x', value: { type: 'object' } } });
+        assert.equal(result.ok, true);
+        assert.equal(result.text, 'fallback ok');
+        assert.match(result.meta.notice, /JSON Schema/);
+        assert.equal(calls, 2);
+        assert.equal(firstText.mock.callCount(), 1);
+        assert.equal(secondText.mock.callCount(), 0);
+        assert.equal(secondJson.mock.callCount(), 1);
+    });
+
     it('没开 JSON Schema 时行为不变（只发一次）', async () => {
         let calls = 0;
         globalThis.fetch = async () => {

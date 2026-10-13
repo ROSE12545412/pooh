@@ -6,7 +6,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 
-import { Rng, parseDiceExpression, randomSeedLabel, rollExpression } from '../src/core/rng.js';
+import { MAX_DICE_COUNT, Rng, parseDiceExpression, randomSeedLabel, rollExpression } from '../src/core/rng.js';
 
 describe('Rng 种子与复现', () => {
     it('相同种子的两个实例产生完全相同的序列', () => {
@@ -111,6 +111,27 @@ describe('Rng 种子与复现', () => {
         const a = new Rng('same').shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         const b = new Rng('same').shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
         assert.deepEqual(a, b);
+    });
+});
+
+describe('骰子安全预算', () => {
+    it('超大或非有限输入在消耗随机数之前拒绝', () => {
+        const rng = new Rng('budget');
+        for (const count of [MAX_DICE_COUNT + 1, 999999999999, Infinity, NaN]) {
+            assert.throws(() => rng.dice(count, 20), RangeError);
+        }
+        for (const faces of [Infinity, NaN, Number.MAX_SAFE_INTEGER]) {
+            assert.throws(() => rng.dice(2, faces), RangeError);
+        }
+        assert.equal(rng.calls, 0);
+        assert.equal(rng.dice(MAX_DICE_COUNT, 6).rolls.length, MAX_DICE_COUNT);
+    });
+    it('表达式拒绝超限输入，安全上限保持可用', () => {
+        assert.equal(parseDiceExpression('999999999999d20'), null);
+        assert.equal(parseDiceExpression('2d999999999999999999999'), null);
+        assert.equal(parseDiceExpression('2d6+999999999999999999999'), null);
+        assert.equal(parseDiceExpression(`${MAX_DICE_COUNT}d6`).count, MAX_DICE_COUNT);
+        assert.equal(rollExpression(new Rng('fallback-budget'), '999999999999d20').rolls.length, 1);
     });
 });
 

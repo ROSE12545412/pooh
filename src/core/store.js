@@ -328,11 +328,14 @@ export function getBattle(ctx) {
  * @returns {object}
  */
 export function exportAll(ctx) {
+    // 存档可分享，但连接凭据只能留在本机；只修改深拷贝，不改运行中的配置。
+    const settings = structuredCloneSafe(getSettings(ctx));
+    if (settings.p2?.channel) settings.p2.channel.apiKey = '';
     return {
         exportedAt: new Date().toISOString(),
         extId: EXT_ID,
         dataVersion: DATA_VERSION,
-        settings: structuredCloneSafe(getSettings(ctx)),
+        settings,
         chat: structuredCloneSafe(getChatData(ctx)),
     };
 }

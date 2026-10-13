@@ -14,6 +14,19 @@
  *  - 不使用 Math.random，因为它无法播种、无法重放。
  */
 
+/** 单次掷骰明细的安全预算，防止模型/导入公式阻塞 UI 或耗尽内存。 */
+export const MAX_DICE_COUNT = 1000;
+
+/** @param {number} count @param {number} faces */
+export function validateDiceSize(count, faces) {
+    if (!Number.isSafeInteger(count) || count < 1 || count > MAX_DICE_COUNT) {
+        throw new RangeError(`骰子数量必须是 1～${MAX_DICE_COUNT} 的整数`);
+    }
+    if (!Number.isSafeInteger(faces) || faces < 2 || faces > Math.floor(Number.MAX_SAFE_INTEGER / count)) {
+        throw new RangeError('骰子面数或总和超出安全整数范围');
+    }
+}
+
 /** 一个可复现的随机数发生器。 */
 export class Rng {
     /**
@@ -84,8 +97,12 @@ export class Rng {
      * @returns {{rolls: number[], total: number, count: number, faces: number}}
      */
     dice(count, faces) {
+        if (!Number.isFinite(count) || !Number.isFinite(faces)) {
+            throw new RangeError('骰子数量和面数必须是有限数字');
+        }
         const n = Math.max(1, Math.floor(count) || 1);
         const f = Math.max(2, Math.floor(faces) || 6);
+        validateDiceSize(n, f);
         /** @type {number[]} */
         const rolls = [];
         let total = 0;
@@ -194,11 +211,18 @@ export function parseDiceExpression(expr) {
     if (!text) return null;
     const match = text.match(/^(\d*)d(\d+)([+-]\d+)?$/);
     if (!match) return null;
-    return {
+    const parsed = {
         count: match[1] ? Number(match[1]) : 1,
         faces: Number(match[2]),
         modifier: match[3] ? Number(match[3]) : 0,
     };
+    try {
+        validateDiceSize(parsed.count, parsed.faces);
+        if (!Number.isSafeInteger(parsed.modifier)) return null;
+    } catch {
+        return null;
+    }
+    return parsed;
 }
 
 /**

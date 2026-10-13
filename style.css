@@ -3026,3 +3026,962 @@ body.td-resizing {
         transition: none !important;
     }
 }
+
+/* ==========================================================================
+   战斗卡桌：所有覆盖限定于运行中的 battle root，保留外层可调窗口与滚动。
+   放在历史主题/移动端覆盖之后；双 root 类提高优先级，避免旧暗底与三等分卡牌。
+   纹理仅使用 CSS 渐变，不下载图片，也不改变其他 view / panel sizing。
+   ========================================================================== */
+.td-view-battle.td-card-table {
+    --td-bg: #352419;
+    --td-bg-soft: #463022;
+    --td-bg-raised: #543b28;
+    --td-fg: #f5e5c5;
+    --td-fg-dim: #ddc59f;
+    --td-border: #98754a;
+    --td-accent: #e7bc65;
+    --td-warn: #f2cc7c;
+    --td-good: #b4d7a6;
+    --td-bad: #ffc0ac;
+    --td-hp: #be352c;
+    --td-mp: #256eb7;
+    --td-card-ink: #382719;
+    --td-card-muted: #70583e;
+    --td-card-paper: #f0dfb7;
+    --td-card-width: 148px;
+    --td-card-gap: 12px;
+    --td-card-arena-columns: minmax(140px, 1fr) minmax(230px, 1.65fr) minmax(140px, 1fr);
+    container-type: inline-size;
+    container-name: td-battle-table;
+    min-width: 0;
+    height: auto;
+    padding: 12px;
+    border: 1px solid #997144;
+    border-radius: 8px;
+    color: var(--td-fg);
+    background:
+        radial-gradient(ellipse at 45% 0, #b1814630, transparent 65%),
+        repeating-linear-gradient(2deg, transparent 0 6px, #160e0866 7px, transparent 9px 18px),
+        repeating-linear-gradient(91deg, #6e482a18 0 2px, transparent 2px 75px, #180e0977 76px 79px),
+        linear-gradient(100deg, #322017, #54351f 48%, #302018);
+    box-shadow: inset 0 0 0 3px #24170e, inset 0 0 32px #100a0877;
+    text-shadow: none;
+    overflow-wrap: anywhere;
+}
+.td-view-battle.td-card-table *,
+.td-view-battle.td-card-table *::before,
+.td-view-battle.td-card-table *::after { box-sizing: border-box; }
+.td-view-battle.td-card-table > * { min-width: 0; }
+.td-view-battle.td-card-table .td-battle-head { margin-bottom: 10px; }
+.td-view-battle.td-card-table .td-battle-title {
+    font-family: var(--td-display-font, Georgia, serif);
+    color: #ffeac1;
+    letter-spacing: .05em;
+}
+.td-view-battle.td-card-table :is(.td-user-picker, .td-action-bar, .td-banter) {
+    padding: 10px;
+    border: 1px solid #ad8652;
+    border-radius: 6px;
+    background: linear-gradient(130deg, #78533344, transparent 70%), #39271c;
+    color: #f5e5c5;
+    box-shadow: inset 0 1px #f9d69d22, 0 3px 8px #130c0866;
+}
+.td-view-battle.td-card-table .td-user-picker { margin-bottom: 12px; }
+.td-view-battle.td-card-table .td-user-picker-warn { border-color: #edb067; }
+.td-view-battle.td-card-table .notes { color: #e0c9a6; line-height: 1.6; }
+.td-view-battle.td-card-table .menu_button {
+    background: linear-gradient(#725235, #483221);
+    color: #fff0d1;
+    border-color: #bd9559;
+    border-radius: 5px;
+    text-shadow: none;
+    min-height: 36px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.td-view-battle.td-card-table .menu_button:hover:not(:disabled) {
+    background: linear-gradient(#8a663d, #604329);
+    color: #fff6df;
+    border-color: #f3ce83;
+}
+.td-view-battle.td-card-table :is(input.text_pole, select.text_pole, textarea.text_pole) {
+    background: #f2e2bf;
+    color: #382719;
+    border-color: #a98756;
+    text-shadow: none;
+    min-width: 0;
+    max-width: 100%;
+}
+.td-view-battle.td-card-table option { background: #f2e2bf; color: #382719; }
+.td-view-battle.td-card-table .td-card-arena {
+    display: grid;
+    grid-template-columns: var(--td-card-arena-columns);
+    align-items: start;
+    gap: var(--td-card-gap);
+    min-width: 0;
+    margin-bottom: 12px;
+}
+.td-view-battle.td-card-table :is(.td-card-side, .td-card-center, .td-battle-column) { min-width: 0; }
+.td-view-battle.td-card-table .td-card-side {
+    padding: 6px;
+    border: 1px solid #b1874a66;
+    border-radius: 6px;
+    background: #180e0944;
+}
+.td-view-battle.td-card-table .td-column-head {
+    font-family: var(--td-display-font, Georgia, serif);
+    color: #f3deb4;
+    font-size: 14px;
+    padding: 7px 3px;
+    margin-bottom: 5px;
+    border-bottom: 1px solid #b79558;
+    letter-spacing: .06em;
+}
+.td-view-battle.td-card-table .td-card-enemies .td-column-head { color: #ffd3ba; border-color: #c77d60; }
+.td-view-battle.td-card-table .td-roster-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 9px;
+    padding: 5px 0;
+    min-width: 0;
+}
+.td-view-battle.td-card-table .td-roster-unit.td-character-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1 1 var(--td-card-width);
+    width: var(--td-card-width);
+    min-width: 0;
+    max-width: 190px;
+    margin: 0;
+    padding: 11px 9px;
+    gap: 6px;
+    border: 1px solid #ba925b;
+    border-radius: 9px;
+    background:
+        radial-gradient(ellipse at 20% 12%, #fff9e4bb, transparent 60%),
+        repeating-linear-gradient(110deg, #a87e4010 0 1px, transparent 1px 5px),
+        linear-gradient(150deg, #f4e8c9, #e7cfa0);
+    color: var(--td-card-ink);
+    box-shadow: inset 0 0 0 3px #fff2ce66, inset 0 0 18px #9d672125, 0 5px 10px #130a0788;
+    text-shadow: none;
+}
+.td-view-battle.td-card-table .td-character-card.td-player-unit { border-color: #b78530; }
+.td-view-battle.td-card-table .td-character-card.td-bunit-current,
+.td-view-battle.td-card-table .td-character-card.td-bunit-selected {
+    border-color: #ffda88;
+    background: radial-gradient(ellipse at 50% 0, #fff8d9, transparent 75%), #efd59c;
+    box-shadow: inset 0 0 0 2px #c88a35, 0 0 0 2px #f7ce6a88, 0 5px 14px #09050488;
+}
+.td-view-battle.td-card-table .td-character-card.td-bunit-targetable {
+    border-color: #b47b25;
+    outline: 2px dashed #f4c76e;
+    outline-offset: 2px;
+    animation: none;
+}
+.td-view-battle.td-card-table .td-character-card.td-bunit-dead { opacity: .72; filter: grayscale(.65); }
+.td-view-battle.td-card-table .td-character-card .td-bunit-name {
+    font-size: 15px;
+    color: #382719;
+    line-height: 1.4;
+    text-align: center;
+    max-width: 100%;
+    letter-spacing: .025em;
+    overflow-wrap: anywhere;
+}
+.td-view-battle.td-card-table .td-character-card :is(.td-unit-role, .td-bunit-attrs, .td-bunit-equips, .notes, .td-resource-values) {
+    color: #705238;
+    text-shadow: none;
+    font-size: 11px;
+}
+.td-view-battle.td-card-table .td-character-card .td-tag {
+    color: #573d24;
+    background: #fff4d477;
+    border-color: #96703b88;
+    border-radius: 3px;
+}
+.td-view-battle.td-card-table .td-character-card .td-tag-dead { color: #9b3327; }
+.td-view-battle.td-card-table .td-character-card .td-target-hint { color: #845316; }
+.td-view-battle.td-card-table .td-character-card .td-unit-details {
+    width: 100%;
+    color: #49301e;
+    border-color: #a77f46;
+    padding-top: 7px;
+    margin-top: 2px;
+}
+.td-view-battle.td-card-table .td-character-card .td-portrait-wrap { width: 68px; height: 76px; }
+.td-view-battle.td-card-table .td-character-card .td-portrait {
+    width: 68px;
+    height: 76px;
+    border-radius: 9px;
+    border: 2px solid #9b743d;
+    background: radial-gradient(ellipse at 35% 20%, #b7945d, #51402b 75%);
+    color: #fff0cb;
+    box-shadow: inset 0 0 10px #20160999, 0 0 0 2px #f8ebc8;
+}
+.td-view-battle.td-card-table .td-character-card .td-portrait-image { border-radius: 6px; }
+.td-view-battle.td-card-table .td-character-card .td-resource-toggle {
+    width: 100%;
+    flex-direction: column;
+    gap: 5px;
+    padding: 3px 0;
+    color: #382719;
+    background: transparent;
+    box-shadow: none;
+    border: 0;
+    text-shadow: none;
+}
+.td-view-battle.td-card-table .td-character-card .td-resource-toggle:hover { background: #b98b3518; }
+/* 旧资源球保留 DOM/事件合同，但视觉用上方资源条；详情触发器保持可点击。 */
+.td-view-battle.td-card-table .td-character-card .td-resource-toggle > * { display: none; }
+.td-view-battle.td-card-table .td-character-card .td-resource-toggle::after {
+    content: '查看属性 ▾';
+    display: block;
+    width: 100%;
+    padding: 3px 5px;
+    border: 1px solid #a77d4388;
+    border-radius: 4px;
+    color: #6a4725;
+    background: #fff0c544;
+    font: 11px/1.4 var(--td-font);
+}
+.td-view-battle.td-card-table .td-card-side .td-roster-row {
+    max-height: min(620px, 65vh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #aa8049 #302016;
+}
+.td-view-battle.td-card-table .td-card-center .td-bg3-dice-holder canvas { width: min(200px, 100%); height: auto; }
+.td-view-battle.td-card-table .td-card-center .td-bg3-dice-holder { min-height: 100px; }
+.td-view-battle.td-card-table .td-card-center .td-bg3-shield { min-height: 180px; }
+.td-view-battle.td-card-table .td-card-resource {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr);
+    align-items: center;
+    gap: 2px 5px;
+    width: 100%;
+    color: #563621;
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.td-view-battle.td-card-table .td-card-resource-label { grid-column: 1; grid-row: 1; letter-spacing: .025em; }
+.td-view-battle.td-card-table .td-card-resource-track {
+    grid-column: 2;
+    grid-row: 1;
+    display: block;
+    height: 12px;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid #8e6b40;
+    border-radius: 3px;
+    background: #4a2d22;
+    box-shadow: inset 0 1px 3px #1d0e0988;
+}
+.td-view-battle.td-card-table .td-card-resource-fill {
+    display: block;
+    height: 100%;
+    max-width: 100%;
+    background: linear-gradient(#e56548, #ac2726);
+    box-shadow: inset 0 1px #ffffff66;
+    transition: width .25s ease;
+}
+.td-view-battle.td-card-table .td-card-mp .td-card-resource-fill { background: linear-gradient(#65b6e8, #2364b4); }
+.td-view-battle.td-card-table .td-card-hp .td-card-resource-label { color: #a62f29; }
+.td-view-battle.td-card-table .td-card-mp .td-card-resource-label { color: #215c9d; }
+.td-view-battle.td-card-table .td-card-resource-value { grid-column: 2; text-align: right; line-height: 1.3; color: #593c26; }
+.td-view-battle.td-card-table .td-card-center { display: flex; flex-direction: column; gap: 10px; }
+.td-view-battle.td-card-table .td-initiative {
+    margin: 0;
+    padding: 7px;
+    border-color: #967044;
+    background: #241910;
+    gap: 5px;
+}
+.td-view-battle.td-card-table .td-init-chip { color: #ecd5ac; background: #5a4029; border-color: #957047; }
+.td-view-battle.td-card-table .td-init-current { color: #fff0cc; border-color: #ffd183; box-shadow: 0 0 0 1px #ce9a44; }
+.td-view-battle.td-card-table :is(.td-bg3-panel, .td-dice-stage) {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 12px 8px;
+    border: 1px solid #b58b54;
+    border-radius: 9px;
+    background:
+        radial-gradient(ellipse at 50% 25%, #986d4133, transparent 70%),
+        repeating-linear-gradient(125deg, #fff3dd05 0 1px, transparent 1px 4px), #2e211b;
+    box-shadow: inset 0 0 0 3px #211510, inset 0 0 0 4px #c29a5c44, inset 0 0 28px #10090888;
+}
+.td-view-battle.td-card-table .td-bg3-shield { width: 100%; min-width: 0; background: radial-gradient(ellipse at 50% 35%, #70513c, #33221c 75%); }
+.td-view-battle.td-card-table .td-bg3-inner { min-width: 0; padding: 10px 6px; }
+.td-view-battle.td-card-table :is(.td-bg3-dice-holder, .td-dice-canvas-holder) { min-width: 0; width: 100%; }
+.td-view-battle.td-card-table .td-bg3-dice-holder canvas { max-width: 100%; height: auto; object-fit: contain; }
+.td-view-battle.td-card-table .td-card-center .td-check-score strong { font-size: clamp(24px, 5cqi, 36px); }
+.td-view-battle.td-card-table .td-blog-wrap {
+    min-width: 0;
+    background: #efddb5;
+    color: #39291c;
+    border: 1px solid #b08a52;
+    border-radius: 6px;
+    box-shadow: 0 4px 10px #160c0866;
+}
+.td-view-battle.td-card-table .td-blog-head { background: linear-gradient(#e6cb97, #d6b57d); color: #49311e; padding: 8px 10px; border-color: #ac8348; }
+.td-view-battle.td-card-table .td-blog { max-height: 260px; overflow-y: auto; overscroll-behavior: contain; padding: 6px 10px; background: #f4e6c7; color: #39291c; }
+.td-view-battle.td-card-table .td-blog-line { font-size: 12px; line-height: 1.6; padding: 5px 0; border-color: #93704733; }
+.td-view-battle.td-card-table :is(.td-blog-time, .td-blog-round) { color: #826345; }
+.td-view-battle.td-card-table .td-blog-text { color: #39291c; min-width: 0; }
+.td-view-battle.td-card-table .td-blog-attack .td-blog-text { color: #81382b; }
+.td-view-battle.td-card-table :is(.td-blog-crit, .td-blog-roll) .td-blog-text { color: #80540b; }
+.td-view-battle.td-card-table :is(.td-blog-system, .td-blog-turn, .td-blog-end) .td-blog-text { color: #644326; }
+.td-view-battle.td-card-table .td-blog-heal .td-blog-text { color: #346239; }
+.td-view-battle.td-card-table .td-blog-details { background: #e9d5aa; color: #49301e; border-color: #a88149; }
+.td-view-battle.td-card-table .td-card-auxiliary { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 8px; margin: 10px 0; min-width: 0; }
+.td-view-battle.td-card-table .td-card-auxiliary .td-roster-row { justify-content: flex-start; }
+.td-view-battle.td-card-table .td-card-dock { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.td-view-battle.td-card-table .td-card-dock :is(.td-action-bar, .td-banter) { margin: 0; min-width: 0; }
+.td-view-battle.td-card-table .td-action-head { color: #f5dfb4; font-size: 14px; margin-bottom: 8px; }
+.td-view-battle.td-card-table .td-skill-buttons.td-skill-hand {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    padding: 5px 3px 12px;
+}
+.td-view-battle.td-card-table .td-skill-hand .menu_button.td-skill-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 5px;
+    flex: 0 0 156px;
+    width: 156px;
+    min-width: 0;
+    min-height: 126px;
+    max-width: 100%;
+    margin: 0;
+    padding: 11px 10px;
+    border: 1px solid #bd9454;
+    border-radius: 8px;
+    background: radial-gradient(ellipse at 25% 0, #fff7deaa, transparent 70%), linear-gradient(145deg, #f2e1bc, #dfc493);
+    color: #422c1c;
+    font-family: var(--td-display-font, Georgia, serif);
+    font-size: 14px;
+    letter-spacing: .015em;
+    line-height: 1.5;
+    text-align: left;
+    text-shadow: none;
+    box-shadow: inset 0 0 0 2px #fff1ce66, 0 3px 7px #160c0866;
+    scroll-snap-align: start;
+}
+.td-view-battle.td-card-table .td-skill-hand .menu_button.td-skill-card:hover:not(:disabled):not(.td-disabled):not([aria-disabled='true']),
+.td-view-battle.td-card-table .td-skill-hand .menu_button.td-skill-selected {
+    background: linear-gradient(145deg, #fff1c6, #efd08c);
+    color: #382311;
+    border-color: #ffdb85;
+    box-shadow: inset 0 0 0 2px #be8735, 0 0 0 1px #f7cb6d, 0 4px 10px #10090588;
+}
+.td-view-battle.td-card-table .td-skill-hand .menu_button.td-skill-card:disabled,
+.td-view-battle.td-card-table .td-skill-hand .menu_button.td-skill-card[aria-disabled='true'],
+.td-view-battle.td-card-table .td-skill-hand .menu_button.td-skill-card.td-disabled {
+    opacity: 1;
+    filter: none;
+    cursor: not-allowed;
+    background: linear-gradient(145deg, #e0d4bc, #c8b99b);
+    border-color: #8f7b5c;
+    color: #69533b;
+    box-shadow: inset 0 0 0 2px #f2e9d455;
+}
+.td-view-battle.td-card-table .td-skill-card :is(.td-skill-meta, .td-skill-cost, .td-skill-info, .notes) { color: #705131; font-size: 11px; font-family: var(--td-font); }
+.td-view-battle.td-card-table .td-skill-card .td-skill-cost { color: #725024; font-weight: 700; }
+.td-view-battle.td-card-table .td-execute-action { border-color: #ebc375; color: #fff2d4; font-weight: 700; }
+.td-view-battle.td-card-table .td-skill-card .td-skill-name { color: #442a16; font-size: 15px; }
+.td-view-battle.td-card-table .td-skill-disabled-reason { color: #853b25; font: 600 11px/1.5 var(--td-font); }
+.td-view-battle.td-card-table .td-target-picker { color: #f4deb5; background: #302016; border-color: #b89154; }
+.td-view-battle.td-card-table .td-target-picker > b { color: #ffe5b0; }
+.td-view-battle.td-card-table .td-selected-skill-details {
+    flex-basis: 100%;
+    min-width: 0;
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 9px 11px;
+    border: 1px solid #b28a4f;
+    border-radius: 5px;
+    background: linear-gradient(120deg, #f8ebcc, #e8d0a0);
+    color: #49301e;
+    text-shadow: none;
+    font-size: 12px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+    scrollbar-width: thin;
+    scrollbar-color: #aa8049 #e2cba0;
+}
+.td-view-battle.td-card-table .td-selected-skill-details > b { color: #563719; font-size: 14px; }
+.td-view-battle.td-card-table .td-selected-skill-details > div + div { margin-top: 3px; }
+.td-view-battle.td-card-table :is(.td-blog, .td-skill-hand, .td-banter-recent) { scrollbar-width: thin; scrollbar-color: #aa8049 #e2cba0; }
+
+/* 无 container queries 的旧 WebView：按 viewport 提供近似断点。支持时只看实际窗口。 */
+@supports not (container-type: inline-size) {
+    @media (max-width: 700px) {
+        .td-view-battle.td-card-table { --td-card-gap: 7px; --td-card-arena-columns: minmax(115px, 1fr) minmax(170px, 1.4fr) minmax(115px, 1fr); padding: 7px; }
+        .td-view-battle.td-card-table .td-roster-unit.td-character-card { padding: 8px 5px; }
+    }
+    @media (max-width: 499px) {
+        .td-view-battle.td-card-table .td-card-arena { grid-template-columns: minmax(0, 1fr); }
+        .td-view-battle.td-card-table .td-card-allies { order: 0; }
+        .td-view-battle.td-card-table .td-card-center { order: 1; }
+        .td-view-battle.td-card-table .td-card-enemies { order: 2; }
+        .td-view-battle.td-card-table .td-card-auxiliary { order: 3; }
+        .td-view-battle.td-card-table .td-card-side .td-roster-row { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; padding: 5px 3px 10px; }
+        .td-view-battle.td-card-table .td-card-side .td-character-card { flex: 0 0 138px; max-width: none; }
+    }
+}
+@container td-battle-table (min-width: 500px) and (max-width: 700px) {
+    .td-view-battle.td-card-table .td-card-arena { grid-template-columns: minmax(115px, 1fr) minmax(170px, 1.4fr) minmax(115px, 1fr); gap: 7px; }
+    .td-view-battle.td-card-table .td-card-side { padding: 4px; }
+    .td-view-battle.td-card-table .td-roster-unit.td-character-card { padding: 8px 5px; gap: 5px; }
+    .td-view-battle.td-card-table .td-character-card .td-bunit-name { font-size: 13px; }
+    .td-view-battle.td-card-table .td-character-card .td-portrait-wrap,
+    .td-view-battle.td-card-table .td-character-card .td-portrait { width: 56px; height: 64px; }
+    .td-view-battle.td-card-table .td-bg3-panel { padding: 9px 5px; }
+    .td-view-battle.td-card-table .td-bg3-inner { padding: 8px 3px; }
+    .td-view-battle.td-card-table .td-blog { max-height: 230px; padding: 5px 7px; }
+}
+@container td-battle-table (max-width: 499px) {
+    .td-view-battle.td-card-table .td-card-arena { grid-template-columns: minmax(0, 1fr); gap: 9px; }
+    .td-view-battle.td-card-table .td-card-allies { order: 0; }
+    .td-view-battle.td-card-table .td-card-center { order: 1; }
+    .td-view-battle.td-card-table .td-card-enemies { order: 2; }
+    .td-view-battle.td-card-table .td-card-auxiliary { order: 3; }
+    .td-view-battle.td-card-table .td-card-side .td-roster-row {
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scroll-snap-type: x proximity;
+        padding: 5px 3px 10px;
+    }
+    .td-view-battle.td-card-table .td-card-side .td-character-card { flex: 0 0 138px; max-width: none; scroll-snap-align: start; }
+    .td-view-battle.td-card-table .td-card-center .td-blog { max-height: 210px; }
+    .td-view-battle.td-card-table .td-skill-hand .menu_button.td-skill-card { flex-basis: 142px; width: 142px; min-height: 118px; }
+    .td-view-battle.td-card-table .td-battle-controls { gap: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .td-view-battle.td-card-table * { animation: none !important; transition: none !important; }
+}
+
+/* Compact battle table. Size comes from the real panel flex slot, not viewport
+   height: dragging/resizing the panel remains authoritative; other tabs retain
+   their existing scrolling. Three root classes beat all historical card/theme
+   and container-query selectors above, without global !important overrides. */
+.td-panel .td-panel-content:has(> .td-view-battle.td-card-table.td-compact-table) {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    padding: 6px;
+}
+.td-panel-embedded .td-panel-content:has(> .td-view-battle.td-card-table.td-compact-table) {
+    /* Embedded settings have no user-sized shell; give only this view a slot. */
+    height: min(640px, 70dvh);
+    flex: 0 1 auto;
+}
+.td-view-battle.td-card-table.td-compact-table {
+    --td-card-width: 100px;
+    --td-card-gap: 6px;
+    --td-card-arena-columns: minmax(108px, 120px) minmax(0, 1fr) minmax(108px, 120px);
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    flex: 1 1 0;
+    height: auto;
+    min-height: 0;
+    min-width: 0;
+    max-width: 100%;
+    padding: 6px;
+    gap: 5px;
+    overflow: hidden;
+    border-radius: 5px;
+}
+.td-view-battle.td-card-table.td-compact-table > * { min-height: 0; }
+.td-view-battle.td-card-table.td-compact-table .menu_button {
+    min-height: 26px;
+    padding: 3px 6px;
+    font-size: 11px;
+    line-height: 1.25;
+    margin: 0;
+}
+.td-view-battle.td-card-table.td-compact-table .notes { font-size: 10px; line-height: 1.3; }
+.td-view-battle.td-card-table.td-compact-table .td-battle-head {
+    margin: 0;
+    gap: 4px;
+    align-items: center;
+    max-height: 58px;
+    overflow: auto;
+}
+.td-view-battle.td-card-table.td-compact-table .td-battle-title { font-size: 12px; gap: 3px; letter-spacing: 0; }
+.td-view-battle.td-card-table.td-compact-table .td-battle-controls { gap: 3px; }
+.td-view-battle.td-card-table.td-compact-table .td-user-picker {
+    margin: 0;
+    padding: 3px 6px;
+    max-height: 40px;
+    overflow: auto;
+    font-size: 10px;
+}
+.td-view-battle.td-card-table.td-compact-table .td-user-picker .td-row { margin: 0; }
+.td-view-battle.td-card-table.td-compact-table .td-card-arena {
+    grid-template-columns: var(--td-card-arena-columns);
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+    min-height: 0;
+    margin: 0;
+    gap: 5px;
+    overflow: hidden;
+}
+.td-view-battle.td-card-table.td-compact-table :is(.td-card-side, .td-card-center) {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+.td-view-battle.td-card-table.td-compact-table .td-card-side { padding: 3px; }
+.td-view-battle.td-card-table.td-compact-table .td-column-head {
+    padding: 3px 1px;
+    margin-bottom: 3px;
+    font-size: 11px;
+    letter-spacing: 0;
+}
+.td-view-battle.td-card-table.td-compact-table .td-roster-row {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 3px 0;
+    gap: 5px;
+    max-height: none;
+    overflow: visible;
+}
+.td-view-battle.td-card-table.td-compact-table .td-roster-unit.td-character-card {
+    position: relative;
+    flex: 0 0 100px;
+    width: 100px;
+    max-width: 100px;
+    height: 150px;
+    min-height: 150px;
+    padding: 4px;
+    gap: 2px;
+    border-radius: 4px;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: pan-y;
+}
+.td-view-battle.td-card-table.td-compact-table .td-character-card :is(.td-portrait-wrap, .td-portrait) {
+    width: 90px;
+    height: 90px;
+    min-height: 90px;
+    flex: 0 0 90px;
+    border-radius: 2px;
+    max-width: 100%;
+}
+.td-view-battle.td-card-table.td-compact-table .td-character-card .td-portrait-image {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 0;
+}
+.td-view-battle.td-card-table.td-compact-table .td-character-card .td-portrait-edit {
+    position: absolute;
+    right: 2px;
+    top: 2px;
+    z-index: 2;
+    width: 18px;
+    height: 18px;
+    min-height: 18px;
+    min-width: 18px;
+    padding: 0;
+    font-size: 10px;
+    line-height: 16px;
+    opacity: .65;
+}
+.td-view-battle.td-card-table.td-compact-table .td-character-card .td-portrait-edit:is(:hover, :focus-visible) { opacity: 1; }
+.td-view-battle.td-card-table.td-compact-table .td-character-card :is(.td-resource-wrap, .td-resource-orb) { display: none; }
+.td-view-battle.td-card-table.td-compact-table .td-character-card .td-bunit-name {
+    position: absolute;
+    top: 75px;
+    left: 4px;
+    right: 4px;
+    z-index: 1;
+    padding: 2px;
+    font-size: 11px;
+    line-height: 16px;
+    height: 20px;
+    letter-spacing: 0;
+    color: #fff2d6;
+    background: #21170ddb;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+.td-view-battle.td-card-table.td-compact-table .td-character-card :is(.td-unit-role, .td-resource-toggle, .td-unit-details, .td-tag) { display: none; }
+.td-view-battle.td-card-table.td-compact-table .td-character-card.td-bunit-current > .td-tag-good {
+    display: block;
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    z-index: 2;
+    margin: 0;
+    padding: 1px 3px;
+    font-size: 9px;
+    line-height: 12px;
+    color: #fff0bf;
+    background: #61451de8;
+    pointer-events: none;
+}
+.td-view-battle.td-card-table.td-compact-table .td-card-resource {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 16px;
+    flex: 0 0 16px;
+    gap: 0;
+    height: 16px;
+}
+.td-view-battle.td-card-table.td-compact-table .td-card-resource-label { display: none; }
+.td-view-battle.td-card-table.td-compact-table .td-card-resource-track { grid-column: 1; grid-row: 1; height: 16px; }
+.td-view-battle.td-card-table.td-compact-table .td-card-resource-value {
+    grid-column: 1;
+    grid-row: 1;
+    z-index: 1;
+    text-align: center;
+    font-size: 10px;
+    line-height: 16px;
+    color: #fff5e5;
+    text-shadow: 0 1px 2px #000;
+    pointer-events: none;
+}
+.td-view-battle.td-card-table.td-compact-table .td-character-card > .menu_button {
+    min-height: 14px; height: 14px; padding: 0 3px; font-size: 9px; line-height: 14px; width: 100%;
+}
+.td-view-battle.td-card-table.td-compact-table .td-card-center { gap: 5px; }
+.td-view-battle.td-card-table.td-compact-table .td-initiative {
+    flex-wrap: nowrap; padding: 3px; gap: 3px; flex: 0 0 auto; max-height: 30px; overflow: auto;
+}
+.td-view-battle.td-card-table.td-compact-table .td-init-chip { flex-shrink: 0; font-size: 10px; padding: 1px 4px; }
+.td-view-battle.td-card-table.td-compact-table :is(.td-bg3-panel, .td-dice-stage) { padding: 5px 3px; gap: 3px; flex: 0 0 auto; }
+.td-view-battle.td-card-table.td-compact-table .td-bg3-actor { font-size: 12px; letter-spacing: 0; }
+.td-view-battle.td-card-table.td-compact-table .td-bg3-shield { min-height: 140px; }
+.td-view-battle.td-card-table.td-compact-table .td-bg3-inner { padding: 4px; gap: 3px; }
+.td-view-battle.td-card-table.td-compact-table :is(.td-bg3-dice-holder, .td-dice-canvas-holder) { min-height: 110px; padding: 0; }
+.td-view-battle.td-card-table.td-compact-table :is(.td-bg3-dice-holder, .td-dice-canvas-holder) canvas {
+    width: 120px; height: 120px; max-width: 100%; max-height: 140px; object-fit: contain;
+}
+.td-view-battle.td-card-table.td-compact-table :is(.td-check-flavor, .td-preroll-penalty, .td-turn-checks, .td-check-result-wrap) {
+    max-height: 100px; overflow-y: auto; margin: 3px 0; font-size: 10px;
+}
+.td-view-battle.td-card-table.td-compact-table .td-check-score { padding: 5px 2px; gap: 3px; }
+.td-view-battle.td-card-table.td-compact-table .td-check-score strong { font-size: 23px; }
+.td-view-battle.td-card-table.td-compact-table .td-blog-wrap { flex: 0 0 auto; }
+.td-view-battle.td-card-table.td-compact-table .td-blog-head { padding: 3px 5px; font-size: 10px; }
+.td-view-battle.td-card-table.td-compact-table .td-blog { max-height: 95px; padding: 3px 5px; }
+.td-view-battle.td-card-table.td-compact-table .td-blog-line { font-size: 10px; line-height: 1.3; padding: 2px 0; }
+.td-view-battle.td-card-table.td-compact-table .td-blog-details { max-height: 55px; padding: 3px; }
+.td-view-battle.td-card-table.td-compact-table .td-card-auxiliary {
+    grid-column: 1 / -1; min-height: 0; max-height: 66px; overflow: auto; margin: 0; gap: 3px;
+}
+.td-view-battle.td-card-table.td-compact-table .td-card-auxiliary .td-roster-help { font-size: 9px; line-height: 1.2; }
+.td-view-battle.td-card-table.td-compact-table .td-card-auxiliary .td-roster-row { flex-wrap: nowrap; justify-content: flex-start; width: max-content; }
+.td-view-battle.td-card-table.td-compact-table .td-card-dock {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: start;
+    gap: 5px;
+    min-height: 0;
+    max-height: 220px;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+.td-view-battle.td-card-table.td-compact-table .td-card-dock :is(.td-action-bar, .td-banter) { padding: 5px; margin: 0; min-height: 0; }
+.td-view-battle.td-card-table.td-compact-table .td-action-bar { max-height: 210px; overflow-y: auto; }
+.td-view-battle.td-card-table.td-compact-table .td-action-head {
+    font-size: 11px; line-height: 1.25; letter-spacing: 0; gap: 3px; margin-bottom: 3px;
+}
+.td-view-battle.td-card-table.td-compact-table .td-manual-start { max-height: 25px; overflow: auto; margin: 2px 0; }
+.td-view-battle.td-card-table.td-compact-table .td-skill-buttons.td-skill-hand { gap: 5px; padding: 3px 1px 5px; }
+.td-view-battle.td-card-table.td-compact-table .td-skill-hand .menu_button.td-skill-card {
+    flex: 0 0 98px; width: 98px; min-height: 72px; height: 72px; padding: 5px;
+    gap: 2px; font-size: 11px; line-height: 1.2; border-radius: 4px; overflow-y: auto;
+}
+.td-view-battle.td-card-table.td-compact-table .td-skill-card .td-skill-name { font-size: 12px; line-height: 1.25; }
+.td-view-battle.td-card-table.td-compact-table .td-skill-card :is(.td-skill-meta, .td-skill-cost, .td-skill-info, .td-skill-disabled-reason) { font-size: 9px; line-height: 1.2; }
+.td-view-battle.td-card-table.td-compact-table .td-selected-skill-details { max-height: 60px; padding: 4px 5px; font-size: 10px; line-height: 1.3; }
+.td-view-battle.td-card-table.td-compact-table .td-selected-skill-details > b { font-size: 11px; }
+.td-view-battle.td-card-table.td-compact-table .td-target-picker { padding: 4px; margin-top: 3px; gap: 3px; max-height: 56px; overflow: auto; }
+.td-view-battle.td-card-table.td-compact-table .td-target-picker > b { font-size: 10px; }
+/* No input wrapper exists: display:contents makes the target/send row share
+   the textarea's grid row while retaining the controls and their listeners. */
+.td-view-battle.td-card-table.td-compact-table .td-banter {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(52px, .65fr) auto;
+    align-items: start;
+    gap: 4px;
+    max-height: 210px;
+    overflow-y: auto;
+}
+.td-view-battle.td-card-table.td-compact-table .td-banter > b { grid-column: 1 / -1; font-size: 11px; }
+.td-view-battle.td-card-table.td-compact-table .td-banter > .td-row { display: contents; }
+.td-view-battle.td-card-table.td-compact-table .td-banter .td-banter-input {
+    grid-column: 1; grid-row: 2; height: 36px; min-height: 36px; max-height: 36px; padding: 3px;
+    resize: none; font-size: 11px; line-height: 1.3;
+}
+.td-view-battle.td-card-table.td-compact-table .td-banter-target { grid-column: 2; grid-row: 2; height: 36px; width: 100%; padding: 2px; font-size: 11px; }
+.td-view-battle.td-card-table.td-compact-table .td-banter-send { grid-column: 3; grid-row: 2; height: 36px; min-width: 36px; max-width: 50px; padding: 2px; }
+.td-view-battle.td-card-table.td-compact-table .td-banter > :is(.notes, .td-persuasion, .td-banter-recent) { grid-column: 1 / -1; }
+.td-view-battle.td-card-table.td-compact-table .td-banter > .notes { max-height: 26px; overflow: auto; }
+.td-view-battle.td-card-table.td-compact-table .td-banter-recent { max-height: 38px; font-size: 10px; line-height: 1.3; padding-top: 2px; }
+.td-view-battle.td-card-table.td-compact-table .td-persuasion { max-height: 95px; overflow: auto; padding: 4px; gap: 3px; }
+.td-view-battle.td-card-table.td-compact-table .td-persuasion[hidden] { display: none; }
+.td-view-battle.td-card-table.td-compact-table :is(.td-persuasion-target, .td-charm-stats, .td-charm-required) { font-size: 11px; }
+.td-view-battle.td-card-table.td-compact-table .td-charm-offer { gap: 3px; padding-top: 3px; }
+/* Finished combat adds a fifth direct child. Keep it reachable in its own
+   finite grid track rather than clipping it or letting it displace the dock. */
+.td-view-battle.td-card-table.td-compact-table:has(> .td-result-panel) {
+    grid-template-rows: auto auto minmax(0, 1fr) auto minmax(0, .65fr);
+}
+.td-view-battle.td-card-table.td-compact-table > .td-result-panel { overflow: auto; margin: 0; padding: 6px; }
+@container td-battle-table (max-width: 499px) {
+    .td-view-battle.td-card-table.td-compact-table .td-card-arena {
+        grid-template-columns: minmax(100px, .8fr) minmax(0, 1fr) minmax(100px, .8fr);
+        grid-template-rows: minmax(0, 1fr) auto;
+        gap: 3px;
+    }
+    .td-view-battle.td-card-table.td-compact-table .td-card-side { padding: 1px; }
+    .td-view-battle.td-card-table.td-compact-table .td-card-dock { grid-template-columns: minmax(0, 1fr); max-height: 220px; }
+    .td-view-battle.td-card-table.td-compact-table .td-action-bar { max-height: 110px; }
+    .td-view-battle.td-card-table.td-compact-table .td-banter { max-height: 100px; }
+    .td-view-battle.td-card-table.td-compact-table .td-card-auxiliary { max-height: 38px; }
+}
+@supports not (container-type: inline-size) {
+    @media (max-width: 499px) {
+        .td-view-battle.td-card-table.td-compact-table .td-card-arena { grid-template-columns: minmax(100px, .8fr) minmax(0, 1fr) minmax(100px, .8fr); gap: 3px; }
+        .td-view-battle.td-card-table.td-compact-table .td-card-dock { grid-template-columns: minmax(0, 1fr); max-height: 220px; }
+        .td-view-battle.td-card-table.td-compact-table .td-action-bar { max-height: 110px; }
+        .td-view-battle.td-card-table.td-compact-table .td-banter { max-height: 100px; }
+    }
+}
+
+/* Persistent verdict tint is deliberately static: rerenders do not replay FX. */
+.td-view-battle.td-card-table .td-bg3-panel:is(.td-dice-result-crit, .td-dice-special-crit, .td-dice-special-great) .td-bg3-dice-holder canvas {
+    filter: drop-shadow(0 0 9px #efbc5066);
+}
+.td-view-battle.td-card-table .td-bg3-panel:is(.td-dice-result-fumble, .td-dice-special-fumble) .td-bg3-dice-holder canvas {
+    filter: drop-shadow(0 0 8px #a52b4455);
+}
+.td-view-battle.td-card-table .td-dice-special-label {
+    color: #ffe5a0; font: 800 13px/1.5 var(--td-font); letter-spacing: 1px;
+    text-align: center; text-shadow: 0 1px 3px #130b02, 0 0 9px #edbd4c55;
+    max-width: 100%; overflow-wrap: anywhere;
+}
+.td-view-battle.td-card-table .td-dice-special-fumble .td-dice-special-label {
+    color: #ffaaa7; text-shadow: 0 1px 3px #1c0308, 0 0 8px #a1254155;
+}
+/* Battle FX: ephemeral classes only; no changes to selection/focus or dice canvas. */
+.td-view-battle.td-card-table :is(.td-card-center, .td-bg3-panel, .td-bg3-stage, .td-bg3-body, .td-dice-stage, .td-bg3-shield, .td-bg3-inner, .td-bg3-dice-holder) {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.td-view-battle.td-card-table .td-bg3-frame-layer { display: none !important; }
+/* Keep the actual verdict and penalty text readable on the now-floating stage. */
+.td-view-battle.td-card-table .td-card-center :is(.td-bg3-actor, .td-bg3-check, .td-check-target-name, .td-check-flavor, .td-check-result-wrap, .td-turn-checks, .td-preroll-penalty) {
+    text-shadow: 0 1px 3px #090706, 0 0 7px #090706;
+}
+.td-view-battle.td-card-table .td-bg3-dice-holder { position: relative; isolation: isolate; }
+.td-view-battle.td-card-table .td-bg3-panel:is(.td-fx-crit, .td-fx-great, .td-fx-fumble) .td-bg3-dice-holder::after {
+    content: ''; position: absolute; inset: 5% 8%; pointer-events: none; z-index: -1;
+    border-radius: 50%; opacity: 0;
+    background: radial-gradient(ellipse, #ffe7a660, #e9ac252b 40%, transparent 70%);
+    animation: td-fx-dice-pulse 1000ms ease-out both;
+}
+.td-view-battle.td-card-table .td-bg3-panel.td-fx-fumble .td-bg3-dice-holder::after {
+    background: radial-gradient(ellipse, #ae202b55, #650d252b 40%, transparent 70%);
+}
+.td-view-battle.td-card-table .td-bg3-panel:is(.td-fx-crit, .td-fx-great) .td-check-score strong {
+    color: #ffe6a0; text-shadow: 0 0 12px #efb53888, 0 2px 3px #160f06;
+}
+.td-view-battle.td-card-table .td-bg3-panel.td-fx-fumble .td-check-score strong {
+    color: #ff9b99; text-shadow: 0 0 10px #a2214166, 0 2px 3px #160607;
+}
+.td-view-battle.td-card-table .td-character-card:is(.td-fx-actor, .td-fx-target) {
+    position: relative; isolation: isolate; overflow: hidden;
+    transform-origin: 50% 70%;
+}
+.td-view-battle.td-card-table .td-character-card.td-fx-actor {
+    animation: td-fx-lunge 780ms cubic-bezier(.2,.7,.25,1) both;
+}
+.td-view-battle.td-card-table .td-character-card.td-fx-target {
+    animation: td-fx-hit 850ms ease-out both;
+}
+.td-view-battle.td-card-table .td-character-card.td-fx-target.td-fx-miss {
+    animation: td-fx-dodge 800ms ease-out both;
+}
+.td-view-battle.td-card-table .td-character-card.td-fx-actor.td-fx-fumble {
+    animation: td-fx-crumble 900ms ease-out both;
+}
+.td-view-battle.td-card-table .td-character-card:is(.td-fx-heal, .td-fx-shield, .td-fx-control).td-fx-target {
+    animation: td-fx-settle 950ms ease-out both;
+}
+.td-view-battle.td-card-table .td-character-card .td-fx-overlay {
+    --td-fx-color: #ffe4a3;
+    position: absolute; inset: 0; z-index: 4; pointer-events: none;
+    border-radius: inherit; overflow: hidden;
+    /* Inner rim is independent of the permanent selected/focused card shadow. */
+    animation: td-fx-rim 950ms ease-out both;
+}
+.td-view-battle.td-card-table .td-fx-overlay::before,
+.td-view-battle.td-card-table .td-fx-overlay::after {
+    content: ''; position: absolute; pointer-events: none; opacity: 0;
+    inset: 12% 8% 28%; border-radius: 50%;
+    animation: td-fx-bloom 900ms ease-out both;
+}
+.td-view-battle.td-card-table .td-character-card .td-fx-caption {
+    position: absolute; top: 25px; left: 3px; right: 3px; z-index: 6;
+    width: fit-content; max-width: calc(100% - 6px); margin: 0 auto;
+    padding: 3px 6px; border-radius: 4px;
+    color: #fff5dc; background: #20150de8;
+    font: 800 11px/1.35 var(--td-font); text-align: center;
+    overflow-wrap: anywhere; text-shadow: 0 1px 2px #000;
+    box-shadow: 0 1px 5px #0006;
+    animation: td-fx-caption 1000ms ease-out both;
+}
+/* Types can be placed on the card or the overlay, without extra particle nodes. */
+.td-view-battle.td-card-table :is(.td-fx-melee > .td-fx-overlay, .td-fx-overlay.td-fx-melee)::before {
+    inset: 34% -12% auto; height: 5px; border-radius: 100%;
+    background: linear-gradient(90deg, transparent, #f7d57e, #fffbea 55%, transparent);
+    box-shadow: 0 0 9px #ffe8a5; animation: td-fx-slash 750ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-melee > .td-fx-overlay, .td-fx-overlay.td-fx-melee)::after {
+    background: radial-gradient(ellipse, #fff6c044, transparent 64%);
+}
+.td-view-battle.td-card-table :is(.td-fx-fire > .td-fx-overlay, .td-fx-overlay.td-fx-fire) { --td-fx-color: #ff9d48; }
+.td-view-battle.td-card-table :is(.td-fx-fire > .td-fx-overlay, .td-fx-overlay.td-fx-fire)::before {
+    background: radial-gradient(ellipse at 50% 85%, #ffe08799, #f7723277 35%, transparent 70%);
+    border-radius: 50% 50% 25% 25%; animation: td-fx-rise 1000ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-fire > .td-fx-overlay, .td-fx-overlay.td-fx-fire)::after {
+    background: radial-gradient(circle at 22% 65%, #ffe7a6 0 2px, transparent 3px), radial-gradient(circle at 70% 40%, #ffb15b 0 2px, transparent 3px), radial-gradient(circle at 45% 80%, #ffd589 0 1px, transparent 2px);
+    animation: td-fx-rise 1050ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-ice > .td-fx-overlay, .td-fx-overlay.td-fx-ice) { --td-fx-color: #96eaff; }
+.td-view-battle.td-card-table :is(.td-fx-ice > .td-fx-overlay, .td-fx-overlay.td-fx-ice)::before {
+    border: 2px solid #b9f3ee; box-shadow: inset 0 0 13px #68d6f055, 0 0 12px #a2f6ff66;
+    animation: td-fx-ring 1000ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-ice > .td-fx-overlay, .td-fx-overlay.td-fx-ice)::after {
+    border-radius: 0; background: conic-gradient(from 45deg, transparent 0 19%, #c1f7ff66 20% 25%, transparent 26% 44%, #b3ebff77 45% 50%, transparent 51% 69%, #d9fcff66 70% 75%, transparent 76%);
+    clip-path: polygon(50% 0, 60% 35%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 35%);
+}
+.td-view-battle.td-card-table :is(.td-fx-lightning > .td-fx-overlay, .td-fx-overlay.td-fx-lightning) { --td-fx-color: #dfc0ff; }
+.td-view-battle.td-card-table :is(.td-fx-lightning > .td-fx-overlay, .td-fx-overlay.td-fx-lightning)::before {
+    inset: 10% 18% 25%; border-radius: 0; background: linear-gradient(110deg, #9666ef, #fff5ff 50%, #b797ff);
+    clip-path: polygon(65% 0, 42% 35%, 70% 32%, 32% 100%, 42% 55%, 18% 60%);
+    animation: td-fx-bolt 850ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-lightning > .td-fx-overlay, .td-fx-overlay.td-fx-lightning)::after {
+    background: radial-gradient(ellipse, #b88bff55, transparent 65%);
+}
+.td-view-battle.td-card-table :is(.td-fx-arcane > .td-fx-overlay, .td-fx-overlay.td-fx-arcane) { --td-fx-color: #d3a4ff; }
+.td-view-battle.td-card-table :is(.td-fx-arcane > .td-fx-overlay, .td-fx-overlay.td-fx-arcane)::before {
+    background: radial-gradient(circle at 20% 25%, #e3bbff 0 2px, transparent 3px), radial-gradient(circle at 75% 60%, #c49bff 0 3px, transparent 4px), radial-gradient(circle at 30% 80%, #e4c5ff 0 2px, transparent 3px), radial-gradient(ellipse, #9649dc66, transparent 70%);
+    animation: td-fx-ring 1050ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-control > .td-fx-overlay, .td-fx-overlay.td-fx-control) { --td-fx-color: #dfba6f; }
+.td-view-battle.td-card-table :is(.td-fx-control > .td-fx-overlay, .td-fx-overlay.td-fx-control)::before {
+    border: 2px dashed #ffe2a0; box-shadow: inset 0 0 0 5px #b28bd744, 0 0 10px #a67bea55;
+    animation: td-fx-ring 1100ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-control > .td-fx-overlay, .td-fx-overlay.td-fx-control)::after {
+    inset: 28% 38% 42%; border: 2px solid #e8c97e; border-radius: 8px 8px 4px 4px; background: #73529855;
+}
+.td-view-battle.td-card-table :is(.td-fx-poison > .td-fx-overlay, .td-fx-overlay.td-fx-poison) { --td-fx-color: #abd961; }
+.td-view-battle.td-card-table :is(.td-fx-poison > .td-fx-overlay, .td-fx-overlay.td-fx-poison)::before {
+    background: radial-gradient(ellipse at 35% 70%, #96bd5366, transparent 60%), radial-gradient(ellipse at 65% 50%, #527e4966, transparent 60%);
+    animation: td-fx-rise 1100ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-poison > .td-fx-overlay, .td-fx-overlay.td-fx-poison)::after {
+    inset: 22% 30% 40%; border-radius: 70% 30% 60% 40%;
+    background: radial-gradient(ellipse at 25% 20%, #c5ed77 0 3px, transparent 4px), radial-gradient(ellipse at 75% 65%, #90cc65 0 4px, transparent 5px);
+    animation: td-fx-drip 1000ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-heal > .td-fx-overlay, .td-fx-overlay.td-fx-heal) { --td-fx-color: #8aedbb; }
+.td-view-battle.td-card-table :is(.td-fx-heal > .td-fx-overlay, .td-fx-overlay.td-fx-heal)::before {
+    background: radial-gradient(ellipse, #caffdf99, #5ed49255 40%, transparent 70%);
+    animation: td-fx-rise 1050ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-heal > .td-fx-overlay, .td-fx-overlay.td-fx-heal)::after {
+    inset: 25% 35% 45%; border-radius: 0; background: #dbffea;
+    clip-path: polygon(35% 0, 65% 0, 65% 35%, 100% 35%, 100% 65%, 65% 65%, 65% 100%, 35% 100%, 35% 65%, 0 65%, 0 35%, 35% 35%);
+}
+.td-view-battle.td-card-table :is(.td-fx-shield > .td-fx-overlay, .td-fx-overlay.td-fx-shield) { --td-fx-color: #88cbff; }
+.td-view-battle.td-card-table :is(.td-fx-shield > .td-fx-overlay, .td-fx-overlay.td-fx-shield)::before {
+    border: 2px solid #b2e5ff; border-radius: 48% 48% 40% 40%;
+    background: radial-gradient(ellipse, transparent 45%, #6ba8ec55 90%);
+    box-shadow: inset 0 0 16px #8ed3ff55; animation: td-fx-ring 1050ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-crit > .td-fx-overlay, .td-fx-great > .td-fx-overlay, .td-fx-overlay.td-fx-crit, .td-fx-overlay.td-fx-great) {
+    --td-fx-color: #ffe096;
+    animation: td-fx-gold-rim 1000ms ease-out both;
+}
+.td-view-battle.td-card-table :is(.td-fx-crit, .td-fx-great) .td-fx-caption {
+    color: #fff1bc; background: #533408ee; text-shadow: 0 0 6px #ffc65788, 0 1px 2px #000;
+    box-shadow: 0 0 9px #ffd15d66; letter-spacing: .5px;
+}
+.td-view-battle.td-card-table :is(.td-fx-fumble > .td-fx-overlay, .td-fx-overlay.td-fx-fumble) { --td-fx-color: #ac3946; }
+.td-view-battle.td-card-table .td-fx-fumble .td-fx-caption { color: #ffc2bd; background: #480e19ee; }
+.td-view-battle.td-card-table .td-fx-miss .td-fx-caption { color: #e4e4ed; background: #292a38ee; }
+@keyframes td-fx-lunge {
+    0%, 100% { transform: translateX(0) rotate(0); }
+    30% { transform: translateX(calc(var(--td-fx-direction, 1) * 8px)) rotate(calc(var(--td-fx-direction, 1) * 2deg)); }
+    55% { transform: translateX(calc(var(--td-fx-direction, 1) * 3px)) rotate(0); }
+}
+@keyframes td-fx-hit {
+    0%, 25%, 100% { transform: translateX(0) rotate(0); }
+    40% { transform: translateX(calc(var(--td-fx-direction, 1) * -4px)) rotate(-1.5deg); }
+    60% { transform: translateX(2px) rotate(.7deg); }
+}
+@keyframes td-fx-dodge { 0%,100% { transform: translateX(0); } 40% { transform: translateX(calc(var(--td-fx-direction, 1) * -6px)) rotate(-2deg); } }
+@keyframes td-fx-crumble { 0%,100% { transform: translateX(0) rotate(0); } 30% { transform: translateX(-3px) rotate(-2deg); } 50% { transform: translateX(3px) rotate(1deg); } 70% { transform: translateY(2px); } }
+@keyframes td-fx-settle { 0%,100% { transform: translateY(0); } 40% { transform: translateY(-2px); } }
+@keyframes td-fx-rim { 0%,100% { box-shadow: inset 0 0 0 0 transparent; } 40% { box-shadow: inset 0 0 0 2px var(--td-fx-color), inset 0 0 15px color-mix(in srgb, var(--td-fx-color) 28%, transparent); } }
+@keyframes td-fx-gold-rim { 0%,100% { box-shadow: inset 0 0 0 0 transparent; } 35% { box-shadow: inset 0 0 0 3px #ffdf83, inset 0 0 22px #efb63b66; } }
+@keyframes td-fx-bloom { 0%,100% { opacity: 0; transform: scale(.75); } 35% { opacity: .8; transform: scale(1); } 75% { opacity: .3; transform: scale(1.12); } }
+@keyframes td-fx-slash { 0%,15% { opacity: 0; transform: translateX(-30%) rotate(-35deg) scaleX(.4); } 35% { opacity: .95; transform: translateX(0) rotate(-35deg) scaleX(1); } 80%,100% { opacity: 0; transform: translateX(25%) rotate(-35deg) scaleX(1.1); } }
+@keyframes td-fx-rise { 0% { opacity: 0; transform: translateY(12px) scale(.85); } 35% { opacity: .8; } 100% { opacity: 0; transform: translateY(-18px) scale(1.15); } }
+@keyframes td-fx-ring { 0% { opacity: 0; transform: scale(.65) rotate(-12deg); } 35% { opacity: .85; } 100% { opacity: 0; transform: scale(1.15) rotate(12deg); } }
+@keyframes td-fx-bolt { 0%,15% { opacity: 0; transform: scaleY(.5); } 35% { opacity: .85; transform: scaleY(1); } 100% { opacity: 0; transform: scaleY(1); } }
+@keyframes td-fx-drip { 0% { opacity: 0; transform: translateY(-8px); } 35% { opacity: .85; } 100% { opacity: 0; transform: translateY(18px); } }
+@keyframes td-fx-caption { 0% { opacity: 0; transform: translateY(4px); } 15%,75% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-3px); } }
+@keyframes td-fx-dice-pulse { 0%,100% { opacity: 0; transform: scale(.8); } 40% { opacity: .85; transform: scale(1.05); } }
+@media (prefers-reduced-motion: reduce) {
+    .td-view-battle.td-card-table .td-character-card:is(.td-fx-actor, .td-fx-target),
+    .td-view-battle.td-card-table .td-fx-overlay,
+    .td-view-battle.td-card-table .td-fx-overlay::before,
+    .td-view-battle.td-card-table .td-fx-overlay::after,
+    .td-view-battle.td-card-table .td-fx-caption,
+    .td-view-battle.td-card-table .td-bg3-dice-holder::after {
+        animation: none !important; transition: none !important; transform: none !important;
+    }
+    .td-view-battle.td-card-table .td-character-card .td-fx-overlay {
+        box-shadow: inset 0 0 0 2px var(--td-fx-color);
+    }
+    .td-view-battle.td-card-table .td-fx-overlay::before,
+    .td-view-battle.td-card-table .td-fx-overlay::after { display: none; }
+    .td-view-battle.td-card-table .td-fx-caption { opacity: 1; }
+    .td-view-battle.td-card-table .td-bg3-panel:is(.td-fx-crit, .td-fx-great, .td-fx-fumble) .td-bg3-dice-holder::after { opacity: .25; }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "pooh",
+  "version": "1.0.0",
+  "description": "一句话说明这个项目是做什么的",
+  "keywords": [],
+  "license": "MIT",
+  "author": "ROSE12545412",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ROSE12545412/pooh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ROSE12545412/pooh/issues"
+  },
+  "homepage": "https://github.com/ROSE12545412/pooh#readme",
+  "files": [
+    "dist"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}

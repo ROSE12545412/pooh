@@ -1,6 +1,6 @@
 {
   "name": "tavern-dice",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "description": "Scene-driven turn-based combat for SillyTavern / TauriTavern. 当前剧情生成参战数据，AI操控队友与敌方，本地掷骰结算并汇总续写。",

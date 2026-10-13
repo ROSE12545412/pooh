@@ -8,7 +8,7 @@
 import { EXT_ID, EXT_NAME, TAG, deriveExtensionFolder } from './src/config.js';
 import { BUILD_STAMP } from './src/build.js';
 import { diagLog, installDiagCapture, showDiagPanel } from './src/ui/diag.js';
-import { AppController } from './src/app.js';
+import { AppController } from './src/app.js?v=1.0.4';
 import { getSettings, saveSettings } from './src/core/store.js';
 import { createFloatBall } from './src/ui/ball.js';
 import { toast } from './src/ui/dom.js';

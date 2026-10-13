@@ -3,10 +3,10 @@
   "loading_order": 100,
   "requires": [],
   "optional": [],
-  "js": "index.js",
+  "js": "entry-1.0.4.js",
   "css": "style.css",
   "author": "ROSE12545412",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "homePage": "https://github.com/ROSE12545412/pooh",
   "auto_update": false
 }

@@ -12,7 +12,7 @@ import { Battle, canUseSkill } from './combat/engine.js';
 import { chooseFallbackTarget } from './combat/targeting.js';
 import { normalizeLoadoutLibrary, createLoadoutEntry, updateLoadoutEntry, removeLoadoutEntry, saveRefinedLoadout, applyLoadout, loadoutSceneNote, selectedLoadoutEntries } from './core/loadout.js';
 import { buildLoadoutChatRequest, collectLoadoutRefinements } from './llm/loadout.js';
-import { captureLoadoutChatPair, deleteLoadoutChatPair } from './llm/loadout-chat.js?v=1.0.5';
+import { captureLoadoutChatPair, deleteLoadoutChatPair } from './llm/loadout-chat.js?v=1.0.6';
 import { hitPenaltyPreview } from './combat/preview.js';
 import { resolveRecruitment } from './combat/social.js';
 import { findPersuasion, recordPersuasion, offerCharmCheck, previewCharmCheck, recordCharmRoll } from './combat/persuasion.js';
@@ -1343,7 +1343,7 @@ export class AppController {
         if (!persisted.ok) {
             return retained(`战斗数据未能落盘，保留请求与正文回复：${persisted.error || '保存失败'}`);
         }
-        this.log('ℹ 开战清楼模块 1.0.5：核对本次两楼，先删回复再删请求');
+        this.log('ℹ 开战清楼模块 1.0.6：核对本次两楼，先删回复再删请求');
         const cleaned = await deleteLoadoutChatPair(() => currentGenerationContext(this.ctx), captured.pair, {
             signal: controller.signal, helper: getTavernHelper(),
         });

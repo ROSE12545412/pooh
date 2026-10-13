@@ -65,6 +65,21 @@ describe('保守删除润色请求与报告', () => {
         assert.equal(saves, 1);
         assert.deepEqual(f.ctx.chat.map(x => x.mes), ['story-0', 'story-1']);
     });
+    it('原生删除后先保存再重载聊天，同步残留画面且核对磁盘结果', async () => {
+        for (const restored of [false, true]) {
+            const f = fixture(); const original = structuredClone(f.ctx.chat); const events = [];
+            let disk;
+            f.ctx.deleteMessage = async index => { events.push(index); f.ctx.chat.splice(index, 1); };
+            f.ctx.saveChat = async () => { events.push('save'); disk = structuredClone(f.ctx.chat); };
+            f.ctx.reloadCurrentChat = async () => {
+                events.push('reload'); f.ctx.chat = restored ? original : structuredClone(disk);
+            };
+            const result = await deleteLoadoutChatPair(() => f.ctx, f.pair, { helper: null });
+            assert.equal(result.ok, !restored);
+            assert.deepEqual(events, [3, 2, 'save', 'reload']);
+            if (restored) assert.match(result.error, /重载后/);
+        }
+    });
     it('原生第一步后换聊天、新消息、生成、取消、文本变化或无实际删除时停止，不回落helper', async () => {
         for (const change of [f => { f.ctx.chatId = 'other'; }, f => { f.ctx.chat.push({ mes: 'late' }); },
             f => { f.ctx.isGenerating = true; }, f => { f.abort.abort(); },

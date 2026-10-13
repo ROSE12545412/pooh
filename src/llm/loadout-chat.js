@@ -117,6 +117,22 @@ export async function deleteLoadoutChatPair(getContext, pair, { signal, helper =
                 if (afterSave) return fail(afterSave);
             }
             if (signal?.aborted) return fail('清理保存期间已取消；不会再次删除');
+            // 部分移动宿主的投影层未随逐楼删除同步；保存后由宿主重载，
+            // 不直接操作DOM，不再次删除。重载也验证磁盘中的聊天确实已清理。
+            const refreshContext = getContext();
+            const beforeRefresh = check(refreshContext, pair, 0);
+            if (beforeRefresh) return fail(beforeRefresh);
+            if (typeof refreshContext.reloadCurrentChat === 'function') {
+                if (typeof savedContext.saveChat !== 'function') return fail('数据已删除，但缺少立即保存接口，未重载聊天以免恢复旧楼层');
+                if (readGenerationActivity(refreshContext, { helper }) === true) return fail('数据已删除，但正文重新开始生成，未刷新界面');
+                if (signal?.aborted) return fail('数据已删除，但刷新前已取消');
+                const readyRefresh = check(getContext(), pair, 0);
+                if (readyRefresh) return fail(readyRefresh);
+                const refreshed = await refreshContext.reloadCurrentChat();
+                if (refreshed === false || refreshed?.ok === false) return fail('数据已删除并保存，但宿主聊天刷新失败');
+                const afterRefresh = check(getContext(), pair, 0);
+                if (afterRefresh) return fail(`聊天重载后清理未确认：${afterRefresh}`);
+            }
             return { ok: true, error: null };
         }
         const deletionOwner = owner === ctx ? current : owner;

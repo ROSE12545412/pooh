@@ -31,21 +31,25 @@ export function captureLoadoutChatPair(ctx, identity, baselineLength, request, m
     }
 }
 
-function check(ctx, pair, cleaned = false) {
+function check(ctx, pair, remaining = 2) {
     if (!pair?.identity || !sameGenerationChat(pair.identity, ctx)) return '已切换聊天；不会清理其他聊天';
     const baseline = pair.baselineLength;
     if (!Number.isSafeInteger(baseline) || baseline < 0 || !Array.isArray(pair.prefix)
         || pair.prefix.length !== baseline || !Array.isArray(ctx?.chat)
-        || ctx.chat.length !== baseline + (cleaned ? 0 : 2)) return '聊天长度已变化或删除未完成；不会继续删除';
+        || ctx.chat.length !== baseline + remaining) return '聊天长度已变化或删除未完成；不会继续删除';
     for (let i = 0; i < baseline; i++) {
         if (!matches(pair.prefix[i], ctx.chat[i])) return '原剧情楼层引用或内容已改变；不会继续删除';
     }
-    if (!cleaned) {
+    if (remaining > 0) {
         const user = ctx.chat[baseline];
+        if (!matches(pair.user, user) || !user?.is_user || user.mes !== pair.request) {
+            return '请求楼层引用、身份或文本已改变；不会删除';
+        }
+    }
+    if (remaining === 2) {
         const assistant = ctx.chat[baseline + 1];
-        if (!matches(pair.user, user) || !matches(pair.assistant, assistant)
-            || !user?.is_user || assistant?.is_user || assistant?.is_system
-            || user.mes !== pair.request || assistant.mes !== pair.text) return '请求或报告楼层引用、身份或文本已改变；不会删除';
+        if (!matches(pair.assistant, assistant) || assistant?.is_user || assistant?.is_system
+            || assistant?.mes !== pair.text) return '报告楼层引用、身份或文本已改变；不会删除';
     }
     return null;
 }
@@ -58,9 +62,12 @@ export async function deleteLoadoutChatPair(getContext, pair, { signal, helper =
         const error = check(ctx, pair);
         if (error) return fail(error);
         if (readGenerationActivity(ctx, { helper }) === true) return fail('正文仍在生成；不会删除聊天楼层');
-        const owner = typeof helper?.deleteChatMessages === 'function' ? helper
+        // SillyTavern and TauriTavern expose deleteMessage in getContext(), without
+        // requiring TavernHelper. Prefer it; false disables tool-call cascade in ST.
+        const native = typeof ctx?.deleteMessage === 'function';
+        const owner = native ? ctx : typeof helper?.deleteChatMessages === 'function' ? helper
             : typeof ctx?.deleteChatMessages === 'function' ? ctx : null;
-        // No speculative /cut fallback: official command semantics must be verified first.
+        // No speculative /cut fallback, and no retry with another API after deletion.
         if (!owner) return fail('宿主没有精确删除接口；请求与报告楼层保留，请手动清理');
         // Host activity getters may have side effects; re-read immediately before invoking deletion.
         if (signal?.aborted) return fail('清理已取消；聊天楼层保留');
@@ -72,14 +79,49 @@ export async function deleteLoadoutChatPair(getContext, pair, { signal, helper =
         if (signal?.aborted) return fail('清理已取消；聊天楼层保留');
         const readyError = check(current, pair);
         if (readyError) return fail(readyError);
+        if (native) {
+            // Delete the report first: removing the request first shifts its index.
+            // Every awaited host event can change chat/identity/activity, so check
+            // the remaining exact pair/prefix again before removing the request.
+            for (const remaining of [2, 1]) {
+                const latest = getContext();
+                if (signal?.aborted) return fail('清理已取消；不再删除剩余楼层');
+                const before = check(latest, pair, remaining);
+                if (before) return fail(before);
+                if (readGenerationActivity(latest, { helper }) === true) return fail('正文已重新开始生成；不会继续删除');
+                const activityChanged = check(latest, pair, remaining);
+                if (activityChanged) return fail(activityChanged);
+                if (signal?.aborted) return fail('清理已取消；不再删除剩余楼层');
+                if (typeof latest.deleteMessage !== 'function') return fail('宿主精确删除接口已不可用；不会重试');
+                const result = await latest.deleteMessage(pair.baselineLength + remaining - 1, undefined, false, false);
+                if (result === false || result?.ok === false || result?.isAborted === true || result?.isError === true) {
+                    return fail('宿主删除失败；不会尝试其他删除方式');
+                }
+                const invalid = check(getContext(), pair, remaining - 1);
+                if (invalid) return fail(invalid);
+            }
+            if (signal?.aborted) return fail('清理期间已取消；不再进行其他删除');
+            const savedContext = getContext();
+            const beforeSave = check(savedContext, pair, 0);
+            if (beforeSave) return fail(beforeSave);
+            if (typeof savedContext.saveChat === 'function') {
+                const saved = await savedContext.saveChat();
+                if (saved === false || saved?.ok === false) return fail('楼层已删除但宿主保存失败；不会重试删除');
+                const afterSave = check(getContext(), pair, 0);
+                if (afterSave) return fail(afterSave);
+            }
+            if (signal?.aborted) return fail('清理保存期间已取消；不会再次删除');
+            return { ok: true, error: null };
+        }
         const deletionOwner = owner === ctx ? current : owner;
         if (typeof deletionOwner?.deleteChatMessages !== 'function') return fail('宿主精确删除接口已不可用；聊天楼层保留');
-        const result = await deletionOwner.deleteChatMessages([pair.baselineLength, pair.baselineLength + 1], { refresh: 'affected' });
+        // Descending indices also protect compatibility helpers that splice sequentially.
+        const result = await deletionOwner.deleteChatMessages([pair.baselineLength + 1, pair.baselineLength], { refresh: 'affected' });
         if (result === false || result?.ok === false || result?.isAborted === true || result?.isError === true) {
             return fail('宿主删除失败；不会尝试其他删除方式');
         }
         const after = getContext();
-        const invalid = check(after, pair, true);
+        const invalid = check(after, pair, 0);
         if (invalid) return fail(invalid);
         if (signal?.aborted) return fail('清理期间已取消；不再进行其他删除');
         return { ok: true, error: null };

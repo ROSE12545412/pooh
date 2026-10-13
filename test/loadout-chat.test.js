@@ -14,8 +14,8 @@ function fixture(baseline = 2) {
 }
 const erase = (ctx) => async (indices, opts) => {
     assert.deepEqual(opts, { refresh: 'affected' });
-    assert.deepEqual(indices, [ctx.chat.length - 2, ctx.chat.length - 1]);
-    ctx.chat = ctx.chat.slice(0, indices[0]);
+    assert.deepEqual(indices, [ctx.chat.length - 1, ctx.chat.length - 2]);
+    for (const index of indices) ctx.chat.splice(index, 1);
 };
 
 describe('精确捕获润色聊天楼层', () => {
@@ -52,6 +52,46 @@ describe('精确捕获润色聊天楼层', () => {
 });
 
 describe('保守删除润色请求与报告', () => {
+    it('手机无helper时优先原生接口，倒序逐楼删除、禁用级联并立即保存', async () => {
+        const f = fixture(); const calls = []; let saves = 0;
+        f.ctx.deleteMessage = async function (...args) {
+            assert.equal(this.chatId, 'chat-a');
+            calls.push(args); this.chat.splice(args[0], 1);
+        };
+        f.ctx.saveChat = async () => { saves++; assert.equal(f.ctx.chat.length, 2); };
+        const helper = { deleteChatMessages() { assert.fail('native must win'); } };
+        assert.equal((await deleteLoadoutChatPair(() => ({ ...f.ctx }), f.pair, { helper })).ok, true);
+        assert.deepEqual(calls, [[3, undefined, false, false], [2, undefined, false, false]]);
+        assert.equal(saves, 1);
+        assert.deepEqual(f.ctx.chat.map(x => x.mes), ['story-0', 'story-1']);
+    });
+    it('原生第一步后换聊天、新消息、生成、取消、文本变化或无实际删除时停止，不回落helper', async () => {
+        for (const change of [f => { f.ctx.chatId = 'other'; }, f => { f.ctx.chat.push({ mes: 'late' }); },
+            f => { f.ctx.isGenerating = true; }, f => { f.abort.abort(); },
+            f => { f.ctx.chat[0].mes = 'edited'; }, f => { f.ctx.chat[2].mes = 'edited request'; }]) {
+            const f = fixture(); f.abort = new AbortController(); let calls = 0;
+            f.ctx.deleteMessage = async index => { calls++; f.ctx.chat.splice(index, 1); change(f); };
+            const helper = { deleteChatMessages() { assert.fail('never fall back'); } };
+            assert.equal((await deleteLoadoutChatPair(() => f.ctx, f.pair, { helper, signal: f.abort.signal })).ok, false);
+            assert.equal(calls, 1);
+        }
+        for (const result of [undefined, false, { ok: false }]) {
+            const f = fixture(); let calls = 0;
+            f.ctx.deleteMessage = async () => { calls++; return result; };
+            assert.equal((await deleteLoadoutChatPair(() => f.ctx, f.pair, { helper: null })).ok, false);
+            assert.equal(calls, 1); assert.equal(f.ctx.chat.length, 4);
+        }
+    });
+    it('原生保存失败不重新删除；保存期间换聊天也报告失败', async () => {
+        for (const save of [async () => false, async () => { throw Error('save failed'); },
+            async f => { f.ctx.chatId = 'other'; }]) {
+            const f = fixture(); let calls = 0;
+            f.ctx.deleteMessage = async index => { calls++; f.ctx.chat.splice(index, 1); };
+            f.ctx.saveChat = () => save(f);
+            assert.equal((await deleteLoadoutChatPair(() => f.ctx, f.pair, { helper: null })).ok, false);
+            assert.equal(calls, 2); assert.equal(f.ctx.chat.length, 2);
+        }
+    });
     it('优先helper，精确传索引及refresh，保留全部原剧情', async () => {
         const f = fixture();
         const prefix = f.ctx.chat.slice(0, 2);

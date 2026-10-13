@@ -80,7 +80,7 @@ describe('自定义库控制器与开战集成', () => {
             assert.equal(refined.cleaned, true);
         });
         assert.deepEqual(app.ctx.chat, story);
-        assert.deepEqual(app.testChat.deleted, [[1, 2]]);
+        assert.deepEqual(app.testChat.deleted, [[2, 1]]);
         assert.equal(app.testChat.sendCount, 1);
         assert.ok(app.testChat.input.includes(added.id));
         assert.equal(app.loadoutEntries[0].enabled, false);
@@ -152,7 +152,7 @@ describe('自定义库控制器与开战集成', () => {
         });
         assert.ok(app.loadoutEntries.every(entry => entry.rule && !entry.enabled));
         assert.deepEqual(app.ctx.chat, before);
-        assert.deepEqual(app.testChat.deleted, [[1, 2]]);
+        assert.deepEqual(app.testChat.deleted, [[2, 1]]);
         assert.equal(app.testChat.sendCount, 1);
     });
 

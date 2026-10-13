@@ -48,11 +48,23 @@ function fixture({ parseOk = true, afterCapture, noApi = false, saveFails = fals
 }
 
 describe('正文开战成功后安全清理本次两楼', () => {
+    it('手机无助手使用ctx原生deleteMessage倒序清理，再保存聊天', async () => {
+        const f = fixture({ noApi: true }); const nativeCalls = []; let saved = false;
+        f.ctx.deleteMessage = async (id, swipe, confirm, cascade) => {
+            assert.equal(swipe, undefined); assert.equal(confirm, false); assert.equal(cascade, false);
+            assert.ok(f.events.includes('start') && f.events.includes('save'));
+            nativeCalls.push(id); f.ctx.chat.splice(id, 1);
+        };
+        f.ctx.saveChat = async () => { saved = true; assert.deepEqual(f.ctx.chat, [f.original]); };
+        const result = await f.app.startBattleByScene();
+        assert.equal(result.cleaned, true); assert.deepEqual(nativeCalls, [2, 1]); assert.equal(saved, true);
+        assert.deepEqual(f.ctx.chat, [f.original]);
+    });
     it('捕获发送前baseline和准确正文，启动并持久化后只清理本次双楼', async () => {
         const f = fixture();
         const result = await f.app.startBattleByScene({ seed: 'scene-clean', situation: '玩家面对对手' });
         assert.deepEqual(result, { ok: true, count: 2, cleaned: true });
-        assert.deepEqual(f.deleted, [[1, 2]]);
+        assert.deepEqual(f.deleted, [[2, 1]]);
         assert.deepEqual(f.ctx.chat, [f.original]);
         assert.deepEqual(f.events, ['start', 'save', 'delete']);
         assert.ok(f.request().includes('玩家面对对手'));

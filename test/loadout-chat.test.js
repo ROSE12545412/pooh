@@ -113,7 +113,10 @@ describe('保守删除润色请求与报告', () => {
     it('宿主重建消息或补写元数据不阻断删除，原生两步间刷新也兼容', async () => {
         const f = fixture();
         f.ctx.chat = structuredClone(f.ctx.chat);
-        for (const message of f.ctx.chat) { message.extra = { token_count: 42 }; message.gen_finished = 'later'; }
+        for (const message of f.ctx.chat) {
+            message.extra = { token_count: 42 }; message.gen_finished = 'later';
+            message.send_date = 'host-finalized'; message.swipe_id = 0;
+        }
         const calls = [];
         f.ctx.deleteMessage = async index => {
             calls.push(index); f.ctx.chat.splice(index, 1);
@@ -129,7 +132,7 @@ describe('保守删除润色请求与报告', () => {
             f => { f.ctx.chat.pop(); },
             f => { f.ctx.chat[0].mes = 'edited'; }, f => { f.ctx.chat[0].is_user = true; },
             f => { f.ctx.chat[2].name = 'someone else'; }, f => { f.ctx.chat[2].mes = 'edited'; },
-            f => { f.ctx.chat[3].swipe_id = 1; }, f => { f.ctx.chat[3].mes = 'edited'; },
+            f => { f.ctx.chat[3].name = 'another character'; }, f => { f.ctx.chat[3].mes = 'edited'; },
             f => { f.ctx.chat[3].is_system = true; }]) {
             const f = fixture(); let called = 0; change(f);
             assert.equal((await deleteLoadoutChatPair(() => f.ctx, f.pair, { helper: { deleteChatMessages() { called++; } } })).ok, false);

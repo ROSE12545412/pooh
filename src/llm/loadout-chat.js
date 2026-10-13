@@ -5,7 +5,8 @@ const fail = (error) => ({ ok: false, error });
 // 宿主可重建对象并补写 token/耗时/extra 等元数据；只记录楼层的语义身份。
 const snapshot = (message) => JSON.stringify({
     mes: message?.mes, is_user: Boolean(message?.is_user), is_system: Boolean(message?.is_system),
-    name: message?.name, send_date: message?.send_date, swipe_id: message?.swipe_id,
+    name: message?.name,
+    // send_date / swipe_id 可在生成结束后初始化；正文相同不应误判为换楼。
 });
 const recorded = (message) => Object.freeze({ reference: message, text: message?.mes, content: snapshot(message) });
 const matches = (record, message) => Boolean(message) && record?.text === message.mes
@@ -52,8 +53,9 @@ function check(ctx, pair, remaining = 2) {
     }
     if (remaining === 2) {
         const assistant = ctx.chat[baseline + 1];
-        if (!matches(pair.assistant, assistant) || assistant?.is_user || assistant?.is_system
-            || assistant?.mes !== pair.text) return '报告楼层身份或文本已改变；不会删除';
+        if (!assistant || assistant.is_user || assistant.is_system) return '报告楼层角色标记已改变；不会删除';
+        if (assistant.mes !== pair.text) return `报告正文已改变（原${pair.text.length}字／现${String(assistant.mes ?? '').length}字）；不会删除`;
+        if (!matches(pair.assistant, assistant)) return '报告楼层发言者已改变；不会删除';
     }
     return null;
 }

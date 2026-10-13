@@ -7,7 +7,7 @@
 
 import { EXT_ID, EXT_NAME, TAG, deriveExtensionFolder } from './src/config.js';
 import { BUILD_STAMP } from './src/build.js';
-import { createDiagBadge, diagLog, installDiagCapture, showDiagPanel } from './src/ui/diag.js';
+import { diagLog, installDiagCapture, showDiagPanel } from './src/ui/diag.js';
 import { AppController } from './src/app.js';
 import { getSettings, saveSettings } from './src/core/store.js';
 import { createFloatBall } from './src/ui/ball.js';
@@ -33,8 +33,6 @@ const runtime = {
     errorReportingInstalled: false,
     /** 挂载时拿到的设置对象（供球与面板的联动使用）。 */
     settings: null,
-    /** 诊断角标（主面板打不开时的信息通道）。 */
-    diagBadge: null,
 };
 
 /**
@@ -241,9 +239,9 @@ function installPanelHotkey() {
         target.addEventListener('keydown', onKey, true);
     }
 
-    // 再兜一层：即使键盘完全收不到，也不影响用鼠标点角标（见 createDiagBadge）
+    // 诊断快捷键独立于战斗面板。
     diagLog('info', '快捷键已装：Alt+D 开合面板｜Alt+Shift+D 或 Ctrl+Shift+D 看诊断');
-    console.log(`${TAG} 快捷键：Alt+D 开合面板｜Alt+Shift+D / Ctrl+Shift+D 看诊断｜也可以点左下角的「诊断」按钮`);
+    console.log(`${TAG} 快捷键：Alt+D 开合面板｜Alt+Shift+D / Ctrl+Shift+D 看诊断`);
 }
 
 /**
@@ -313,17 +311,8 @@ function mountFloatingUi(app, settings) {
     ball.setBadge(app.powerSystem ? '' : '!');
     document.body.appendChild(ball.node);
 
-    // 诊断角标：**独立于主面板**。
-    // 主面板打不开时，用户还能靠它把信息给我 —— 桌面版没有 F12，
-    // 这个角标就是唯一的反馈通道。
-    try {
-        const badge = createDiagBadge();
-        document.body.appendChild(badge);
-        runtime.diagBadge = badge;
-        diagLog('info', `界面已挂载（构建 ${BUILD_STAMP}）`);
-    } catch (e) {
-        console.error(`${TAG} 挂载诊断角标失败`, e);
-    }
+    // 不挂载左下角常驻诊断按钮；保留快捷键及诊断记录。
+    diagLog('info', `界面已挂载（构建 ${BUILD_STAMP}）`);
 
     // MainPanel owns viewport listeners and removes them in destroy().
 }

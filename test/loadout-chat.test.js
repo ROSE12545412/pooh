@@ -110,12 +110,26 @@ describe('保守删除润色请求与报告', () => {
         assert.equal(result.ok, false); assert.match(result.error, /没有精确删除接口/);
         assert.equal(missing.ctx.chat.length, 4);
     });
-    it('删除前阻止换聊天、新楼层、引用替换、原剧情或请求报告内容改动', async () => {
+    it('宿主重建消息或补写元数据不阻断删除，原生两步间刷新也兼容', async () => {
+        const f = fixture();
+        f.ctx.chat = structuredClone(f.ctx.chat);
+        for (const message of f.ctx.chat) { message.extra = { token_count: 42 }; message.gen_finished = 'later'; }
+        const calls = [];
+        f.ctx.deleteMessage = async index => {
+            calls.push(index); f.ctx.chat.splice(index, 1);
+            f.ctx.chat = structuredClone(f.ctx.chat);
+            for (const message of f.ctx.chat) message.extra.rendered = true;
+        };
+        assert.equal((await deleteLoadoutChatPair(() => f.ctx, f.pair, { helper: null })).ok, true);
+        assert.deepEqual(calls, [3, 2]);
+        assert.deepEqual(f.ctx.chat.map(x => x.mes), ['story-0', 'story-1']);
+    });
+    it('删除前阻止换聊天、新楼层、原剧情或请求报告正文和身份改动', async () => {
         for (const change of [f => { f.ctx.chatId = 'other'; }, f => { f.ctx.chat.push({ mes: 'late' }); },
-            f => { f.ctx.chat.pop(); }, f => { f.ctx.chat[0] = { ...f.ctx.chat[0] }; },
-            f => { f.ctx.chat[0].mes = 'edited'; }, f => { f.ctx.chat[0].extra.stable = false; },
-            f => { f.ctx.chat[2] = { ...f.ctx.chat[2] }; }, f => { f.ctx.chat[2].mes = 'edited'; },
-            f => { f.ctx.chat[3] = { ...f.ctx.chat[3] }; }, f => { f.ctx.chat[3].mes = 'edited'; },
+            f => { f.ctx.chat.pop(); },
+            f => { f.ctx.chat[0].mes = 'edited'; }, f => { f.ctx.chat[0].is_user = true; },
+            f => { f.ctx.chat[2].name = 'someone else'; }, f => { f.ctx.chat[2].mes = 'edited'; },
+            f => { f.ctx.chat[3].swipe_id = 1; }, f => { f.ctx.chat[3].mes = 'edited'; },
             f => { f.ctx.chat[3].is_system = true; }]) {
             const f = fixture(); let called = 0; change(f);
             assert.equal((await deleteLoadoutChatPair(() => f.ctx, f.pair, { helper: { deleteChatMessages() { called++; } } })).ok, false);
@@ -145,7 +159,7 @@ describe('保守删除润色请求与报告', () => {
     });
     it('等待删除期间换聊天、出现迟到新消息、原楼改变或误删均判失败', async () => {
         for (const change of [f => { f.ctx.chatId = 'other'; }, f => { f.ctx.chat.push({ mes: 'late' }); },
-            f => { f.ctx.chat[0].mes = 'edited'; }, f => { f.ctx.chat[0] = { ...f.ctx.chat[0] }; },
+            f => { f.ctx.chat[0].mes = 'edited'; }, f => { f.ctx.chat[0].name = 'another speaker'; },
             f => { f.ctx.chat.shift(); }]) {
             const f = fixture(); let release;
             const pending = deleteLoadoutChatPair(() => f.ctx, f.pair, { helper: { deleteChatMessages: () => new Promise(resolve => { release = resolve; }) } });

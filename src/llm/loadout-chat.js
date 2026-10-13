@@ -2,9 +2,13 @@
 import { sameGenerationChat, readGenerationActivity } from './generation-wait.js';
 
 const fail = (error) => ({ ok: false, error });
-const snapshot = (message) => JSON.stringify(message);
+// 宿主可重建对象并补写 token/耗时/extra 等元数据；只记录楼层的语义身份。
+const snapshot = (message) => JSON.stringify({
+    mes: message?.mes, is_user: Boolean(message?.is_user), is_system: Boolean(message?.is_system),
+    name: message?.name, send_date: message?.send_date, swipe_id: message?.swipe_id,
+});
 const recorded = (message) => Object.freeze({ reference: message, text: message?.mes, content: snapshot(message) });
-const matches = (record, message) => record?.reference === message && record.text === message?.mes
+const matches = (record, message) => Boolean(message) && record?.text === message.mes
     && record.content === snapshot(message);
 
 /** message is the completed waiter's {index,text}, never a guessed latest reply. */
@@ -43,13 +47,13 @@ function check(ctx, pair, remaining = 2) {
     if (remaining > 0) {
         const user = ctx.chat[baseline];
         if (!matches(pair.user, user) || !user?.is_user || user.mes !== pair.request) {
-            return '请求楼层引用、身份或文本已改变；不会删除';
+            return '请求楼层身份或文本已改变；不会删除';
         }
     }
     if (remaining === 2) {
         const assistant = ctx.chat[baseline + 1];
         if (!matches(pair.assistant, assistant) || assistant?.is_user || assistant?.is_system
-            || assistant?.mes !== pair.text) return '报告楼层引用、身份或文本已改变；不会删除';
+            || assistant?.mes !== pair.text) return '报告楼层身份或文本已改变；不会删除';
     }
     return null;
 }

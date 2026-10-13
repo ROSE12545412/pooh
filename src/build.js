@@ -15,4 +15,4 @@
  */
 
 /** 构建时间戳（每次改动后更新）。 */
-export const BUILD_STAMP = 'chat-cleanup-compat-v24';
+export const BUILD_STAMP = 'chat-cleanup-identity-v25';

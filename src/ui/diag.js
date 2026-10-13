@@ -137,7 +137,7 @@ export function createDiagBadge(opts = {}) {
         zIndex: '2147483600',
         height: '24px',
         padding: '0 10px',
-        display: 'flex',
+        display: 'none',
         alignItems: 'center',
         justifyContent: 'center',
         gap: '4px',

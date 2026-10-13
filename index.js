@@ -18,6 +18,9 @@ import { MainPanel, mountExtensionSettings } from './src/ui/panel.js';
 /** 扩展目录名（从自身 URL 推导，用户改了文件夹名也不会错）。 */
 const EXT_FOLDER = deriveExtensionFolder(import.meta.url);
 
+// 更新脚本时清除上一个版本已挂到页面上的常驻诊断角标。
+globalThis.document?.getElementById('tavern-dice-diag-badge')?.remove();
+
 /** 运行期单例。 */
 const runtime = {
     /** @type {AppController|null} */

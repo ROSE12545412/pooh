@@ -45,6 +45,12 @@ body.td-resizing {
    3. 容器本身 pointer-events:none，只有面板接收交互 ——
       这样打开面板时酒馆界面照常能点。 */
 
+/* 即使旧脚本仍在内存或角标已有内联display:flex，也隐藏常驻诊断入口。 */
+#tavern-dice-diag-badge {
+    display: none !important;
+    pointer-events: none !important;
+}
+
 #tavern-dice-panel-layer {
     position: fixed;
     inset: 0;
